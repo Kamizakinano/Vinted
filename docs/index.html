@@ -103,6 +103,8 @@ h1{font-size:32px;font-weight:800;margin:0}
     <div class="kv"><span>Commissioni (%)</span><input id="optComm" inputmode="decimal" placeholder="0"></div>
   </div>
   <div class="box" id="obiettivo"></div>
+  <div class="lab">Sincronizzazione tra dispositivi</div>
+  <div class="box" id="sync"></div>
   <div class="lab">Backup</div>
   <div class="box">
     <div class="kv"><span>Salva backup</span><button style="color:var(--b);font-weight:600" id="salvaBackup">Salva ›</button></div>
@@ -133,5 +135,6 @@ h1{font-size:32px;font-weight:800;margin:0}
 <div class="toast" id="toast"></div>
 
 <script src="app.js"></script>
+<script type="module" src="cloud.js"></script>
 </body>
 </html>

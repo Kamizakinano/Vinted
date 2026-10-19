@@ -1,6 +1,6 @@
 "use strict";
 // Vendite (web app): dati salvati in questo browser, backup in un file.
-const VERSIONE = "2.0";
+const VERSIONE = "2.1";
 const CHIAVE = "vendite-dati", OPZ = "vendite-opzioni";
 const STATI = [
   { nome: "In libreria", plur: "In libreria", col: "var(--grey)", btn: "Venduto" },
@@ -22,8 +22,10 @@ try { articoli = JSON.parse(localStorage.getItem(CHIAVE)) || []; } catch { artic
 try { Object.assign(opz, JSON.parse(localStorage.getItem(OPZ)) || {}); } catch {}
 if (navigator.storage && navigator.storage.persist) navigator.storage.persist();
 
-function salva() {
+/** Salva in locale; se la sincronizzazione è attiva manda online gli articoli cambiati (o eliminati). */
+function salva(cambiati = [], eliminati = []) {
   opz.cambiDopoBackup++;
+  if (window.cloud) window.cloud.invia(cambiati, eliminati);
   localStorage.setItem(CHIAVE, JSON.stringify(articoli));
   salvaOpz();
   disegna();
@@ -177,8 +179,8 @@ function apriDettaglio(id) {
     const a = articoli.find(x => x.id === id);
     if (b.dataset.a === "chiudi") chiudiFoglio();
     if (b.dataset.a === "modifica") apriForm(a, {});
-    if (b.dataset.a === "avanza") { if (a.stato === 0) apriForm(a, { vendi: true }); else { imposta(a, a.stato + 1); salva(); mostraFoglio(); } }
-    if (b.dataset.a === "elimina" && confirm(`Eliminare "${a.nome}"?`)) { articoli = articoli.filter(x => x !== a); salva(); chiudiFoglio(); }
+    if (b.dataset.a === "avanza") { if (a.stato === 0) apriForm(a, { vendi: true }); else { imposta(a, a.stato + 1); salva([a]); mostraFoglio(); } }
+    if (b.dataset.a === "elimina" && confirm(`Eliminare "${a.nome}"?`)) { articoli = articoli.filter(x => x !== a); salva([], [a.id]); chiudiFoglio(); }
   });
 }
 
@@ -251,7 +253,7 @@ function apriForm(art, { stato = 1, vendi = false }) {
         const dataISO = new Date(f.data + "T12:00:00").toISOString();
         if (a.stato !== f.stato) imposta(a, f.stato, dataISO);
         if (f.stato > 0) a.dataVendita = dataISO; else if (art) a.creato = dataISO;
-        salva(); chiudiFoglio(); if (pila.length) mostraFoglio();
+        salva([a]); chiudiFoglio(); if (pila.length) mostraFoglio();
         toast(f.stato > 0 ? "Vendita salvata" : "Articolo in libreria");
       }
     };
@@ -320,9 +322,10 @@ $("#fileRipristino").onchange = async e => {
     const d = JSON.parse(await file.text());
     if (!Array.isArray(d.articoli)) throw 0;
     if (!confirm(`Il backup del ${new Date(d.salvato).toLocaleString("it-IT")} contiene ${d.articoli.length} articoli.\nSostituisce i dati di adesso. Continuare?`)) return;
+    const vecchi = articoli.map(a => a.id).filter(id => !d.articoli.some(a => a.id === id));
     articoli = d.articoli;
     Object.assign(opz, d.opzioni || {});
-    opz.ultimoBackup = d.salvato; salva(); opz.cambiDopoBackup = 0; salvaOpz(); disegna();
+    opz.ultimoBackup = d.salvato; salva(articoli, vecchi); opz.cambiDopoBackup = 0; salvaOpz(); disegna();
     toast("Backup ripristinato");
   } catch { alert("Questo file non è un backup di Vendite."); }
 };
@@ -396,6 +399,13 @@ function zip(file) {
 }
 
 function toast(t) { const el = $("#toast"); el.textContent = t; el.classList.add("on"); clearTimeout(toast.h); toast.h = setTimeout(() => el.classList.remove("on"), 2200); }
+
+/** Usato dalla sincronizzazione quando arrivano dati da un altro dispositivo. */
+window.vendite = {
+  get articoli() { return articoli; },
+  sostituisci(lista) { articoli = lista; localStorage.setItem(CHIAVE, JSON.stringify(articoli)); disegna(); if (pila.length && !$("#fNome") && !$("#cTesto")) mostraFoglio(); },
+  toast,
+};
 
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js");
 disegna();
