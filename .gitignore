@@ -1,3 +1,7 @@
 build/
 build-*/
 *.xcodeproj/
+download/
+stili-10.png
+stili-10-diversi.png
+stile-6-tutte-le-pagine.png
