@@ -5,7 +5,7 @@ struct ContentView: View {
     var body: some View {
         TabView {
             OrdiniView().tabItem { Label("Ordini", systemImage: "shippingbox") }
-            ArticoliView().tabItem { Label("Articoli", systemImage: "tshirt") }
+            LibreriaView().tabItem { Label("Libreria", systemImage: "books.vertical") }
             StatisticheView().tabItem { Label("Statistiche", systemImage: "chart.bar") }
             AltroView().tabItem { Label("Altro", systemImage: "gearshape") }
         }
@@ -18,6 +18,7 @@ struct ContentView: View {
 struct OrdiniView: View {
     @Query(sort: \Articolo.creato, order: .reverse) private var articoli: [Articolo]
     @State private var nuova = false
+    @State private var cerca = false
 
     var body: some View {
         NavigationStack {
@@ -41,6 +42,11 @@ struct OrdiniView: View {
             .navigationTitle("Ordini")
             .navigationDestination(for: Articolo.self) { DettaglioView(articolo: $0) }
             .sheet(isPresented: $nuova) { ArticoloForm(statoIniziale: .daSpedire) }
+            .sheet(isPresented: $cerca) { RicercaView() }
+            .toolbar {
+                Button { cerca = true } label: { Image(systemName: "magnifyingglass") }
+                    .accessibilityIdentifier("cerca")
+            }
         }
     }
 
@@ -104,10 +110,7 @@ struct Scheda: View {
         HStack(spacing: 0) {
             Rectangle().fill(articolo.stato.colore).frame(width: 4)
             VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 4) {
-                    Miniatura(articolo: articolo, lato: 22)
-                    Text(articolo.nome).font(.subheadline.bold()).lineLimit(1)
-                }
+                Text(articolo.nome).font(.subheadline.bold()).lineLimit(1)
                 Text(sottotitolo).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             .padding(10)

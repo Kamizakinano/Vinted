@@ -2,69 +2,113 @@ import SwiftUI
 import SwiftData
 import Charts
 
-// MARK: - Articoli
+// MARK: - Libreria
 
-struct ArticoliView: View {
+struct LibreriaView: View {
     @Query(sort: \Articolo.creato, order: .reverse) private var articoli: [Articolo]
-    @State private var cerca = ""
-    @State private var filtro = 0
     @State private var nuovo = false
+    @State private var daVendere: Articolo? = nil
 
-    private var mostrati: [Articolo] {
-        articoli.filter { a in
-            (filtro == 0 || (filtro == 1 && !a.venduto) || (filtro == 2 && a.venduto))
-                && (cerca.isEmpty || a.nome.localizedCaseInsensitiveContains(cerca))
-        }
-    }
+    private var inLibreria: [Articolo] { articoli.filter { !$0.venduto } }
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 10) {
-                    Picker("Filtro", selection: $filtro) {
-                        Text("Tutti \(articoli.count)").tag(0)
-                        Text("In vendita \(articoli.filter { !$0.venduto }.count)").tag(1)
-                        Text("Venduti \(articoli.filter(\.venduto).count)").tag(2)
+                VStack(spacing: 12) {
+                    HStack {
+                        Voce(titolo: "Articoli", valore: "\(inLibreria.count)")
+                        Voce(titolo: "Hai speso", valore: eur(articoli.reduce(0) { $0 + $1.costo }))
+                        Voce(titolo: "Venduti", valore: "\(articoli.count - inLibreria.count)")
                     }
-                    .pickerStyle(.segmented)
-                    if mostrati.isEmpty {
-                        ContentUnavailableView("Nessun articolo", systemImage: "tshirt",
-                                               description: Text("Tocca + per aggiungere quello che hai in vendita."))
-                    }
-                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-                        ForEach(mostrati) { a in
-                            NavigationLink(value: a) { Casella(articolo: a) }.buttonStyle(.plain)
+                    .padding(12)
+                    .background(.white, in: RoundedRectangle(cornerRadius: 14))
+
+                    if inLibreria.isEmpty {
+                        ContentUnavailableView("Libreria vuota", systemImage: "books.vertical",
+                                               description: Text("Tocca + per caricare un articolo e quanto l'hai pagato."))
+                    } else {
+                        Riquadro {
+                            ForEach(inLibreria) { a in
+                                HStack {
+                                    NavigationLink(value: a) {
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(a.nome).bold().foregroundStyle(Color.primary)
+                                            Text("pagato \(eur(a.costo)) · \(a.creato.formatted(.dateTime.day().month(.abbreviated).locale(Locale(identifier: "it_IT"))))")
+                                                .font(.caption).foregroundStyle(.secondary)
+                                        }
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                    }
+                                    .buttonStyle(.plain)
+                                    Button("Venduto") { daVendere = a }
+                                        .font(.caption.bold()).foregroundStyle(.white)
+                                        .padding(.horizontal, 12).padding(.vertical, 6)
+                                        .background(Color.orange, in: Capsule())
+                                        .buttonStyle(.plain)
+                                        .accessibilityIdentifier("venduto-\(a.nome)")
+                                }
+                                .padding(.vertical, 8)
+                                if a.id != inLibreria.last?.id { Divider() }
+                            }
                         }
                     }
                 }
                 .padding()
             }
             .background(Color.sfondo)
-            .navigationTitle("Articoli")
-            .searchable(text: $cerca, prompt: "Cerca tra \(articoli.count) articoli")
+            .navigationTitle("Libreria")
             .navigationDestination(for: Articolo.self) { DettaglioView(articolo: $0) }
-            .toolbar { Button { nuovo = true } label: { Image(systemName: "plus") } }
+            .toolbar {
+                Button { nuovo = true } label: { Image(systemName: "plus") }.accessibilityIdentifier("nuovoArticolo")
+            }
             .sheet(isPresented: $nuovo) { ArticoloForm(statoIniziale: .inVendita) }
+            .sheet(item: $daVendere) { ArticoloForm(articolo: $0, vendi: true) }
         }
     }
 }
 
-struct Casella: View {
-    var articolo: Articolo
+// MARK: - Ricerca su tutti gli articoli
+
+struct RicercaView: View {
+    @Query(sort: \Articolo.creato, order: .reverse) private var articoli: [Articolo]
+    @Environment(\.dismiss) private var dismiss
+    @State private var testo = ""
+    @State private var filtro = 0
+
+    private var risultati: [Articolo] { Calcoli.cerca(articoli, testo: testo, filtro: filtro) }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Rectangle().fill(articolo.stato.colore).frame(height: 4)
-            Miniatura(articolo: articolo, lato: 56).padding(.horizontal, 10).padding(.top, 6)
-            Text(articolo.nome).font(.subheadline.bold()).lineLimit(1).padding(.horizontal, 10)
-            HStack {
-                Text(articolo.stato.nomeSingolo).foregroundStyle(articolo.stato.colore)
-                Spacer()
-                Text(eur(articolo.prezzo)).foregroundStyle(.secondary)
+        NavigationStack {
+            List {
+                Picker("Filtro", selection: $filtro) {
+                    Text("Tutti").tag(0)
+                    Text("Libreria").tag(1)
+                    Text("Venduti").tag(2)
+                }
+                .pickerStyle(.segmented)
+                .listRowBackground(Color.clear)
+                Section("\(risultati.count) risultati") {
+                    ForEach(risultati) { a in
+                        NavigationLink(value: a) {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(a.nome).bold()
+                                    Text(a.venduto ? "pagato \(eur(a.costo)) · venduto \(eur(a.prezzo))" : "pagato \(eur(a.costo))")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Text(a.venduto ? a.stato.nomeSingolo : "In libreria")
+                                    .font(.caption.bold()).foregroundStyle(a.stato.colore)
+                            }
+                        }
+                    }
+                }
             }
-            .font(.caption).padding(.horizontal, 10).padding(.bottom, 10)
+            .searchable(text: $testo, placement: .navigationBarDrawer(displayMode: .always), prompt: "Cerca per nome")
+            .navigationTitle("Cerca")
+            .navigationBarTitleDisplayMode(.inline)
+            .navigationDestination(for: Articolo.self) { DettaglioView(articolo: $0) }
+            .toolbar { Button("Chiudi") { dismiss() } }
         }
-        .background(.white)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 }
 

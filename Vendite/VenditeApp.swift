@@ -142,6 +142,15 @@ enum Calcoli {
         }
     }
 
+    /// Ricerca per nome. filtro: 0 tutti, 1 solo libreria (non venduti), 2 solo venduti.
+    static func cerca(_ articoli: [Articolo], testo: String, filtro: Int) -> [Articolo] {
+        let t = testo.trimmingCharacters(in: .whitespaces)
+        return articoli.filter { a in
+            (filtro == 0 || (filtro == 1 && !a.venduto) || (filtro == 2 && a.venduto))
+                && (t.isEmpty || a.nome.localizedCaseInsensitiveContains(t))
+        }
+    }
+
     static func commissione(prezzo: Double, percentuale: Double) -> Double {
         (prezzo * percentuale).rounded() / 100
     }

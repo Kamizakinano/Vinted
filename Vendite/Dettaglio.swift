@@ -1,6 +1,5 @@
 import SwiftUI
 import SwiftData
-import PhotosUI
 
 // MARK: - Dettaglio vendita
 
@@ -10,15 +9,14 @@ struct DettaglioView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var modifica = false
     @State private var elimina = false
+    @State private var vendi = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 16).fill(Color.blue.opacity(0.1))
-                    Miniatura(articolo: articolo, lato: articolo.foto == nil ? 80 : 200)
+                if articolo.foto != nil {
+                    Miniatura(articolo: articolo, lato: 200).frame(maxWidth: .infinity)
                 }
-                .frame(height: 200).clipShape(RoundedRectangle(cornerRadius: 16))
 
                 Text(articolo.nome).font(.largeTitle.bold())
                 HStack(spacing: 4) {
@@ -38,13 +36,19 @@ struct DettaglioView: View {
                 }
 
                 Riquadro {
+                    Tappa(fatto: true, titolo: "Caricato", data: articolo.creato)
                     Tappa(fatto: articolo.venduto, titolo: "Venduto", data: articolo.dataVendita)
                     Tappa(fatto: articolo.dataSpedizione != nil, titolo: "Spedito", data: articolo.dataSpedizione,
                           nota: articolo.codiceSpedizione.isEmpty ? nil : "codice \(articolo.codiceSpedizione)")
                     Tappa(fatto: articolo.stato == .pagato, titolo: "Pagato", data: articolo.dataPagamento)
                 }
 
-                if let p = articolo.stato.prossimo {
+                if articolo.stato == .inVendita {
+                    Button { vendi = true } label: {
+                        Text("Venduto").font(.headline).frame(maxWidth: .infinity).padding()
+                            .background(Color.orange, in: RoundedRectangle(cornerRadius: 14)).foregroundStyle(.white)
+                    }
+                } else if let p = articolo.stato.prossimo {
                     Button {
                         withAnimation { articolo.imposta(p) }
                     } label: {
@@ -62,6 +66,7 @@ struct DettaglioView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { Button("Modifica") { modifica = true } }
         .sheet(isPresented: $modifica) { ArticoloForm(articolo: articolo) }
+        .sheet(isPresented: $vendi) { ArticoloForm(articolo: articolo, vendi: true) }
         .confirmationDialog("Eliminare \(articolo.nome)?", isPresented: $elimina, titleVisibility: .visible) {
             Button("Elimina", role: .destructive) { context.delete(articolo); dismiss() }
         }
@@ -107,19 +112,22 @@ struct Tappa: View {
     }
 }
 
-// MARK: - Nuova vendita / modifica
+// MARK: - Nuova vendita / articolo / modifica
 
 struct ArticoloForm: View {
     var articolo: Articolo? = nil
     var statoIniziale: Stato = .daSpedire
+    /// true quando si tocca "Venduto" su un articolo della libreria.
+    var vendi = false
 
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     @AppStorage("siti") private var sitiTesto = "Vinted, Subito, eBay"
     @AppStorage("commissione") private var commissionePerc = 0.0
+    @Query(sort: \Articolo.creato, order: .reverse) private var tutti: [Articolo]
 
+    @State private var scelto: Articolo? = nil
     @State private var nome = ""
-    @State private var emoji = "👕"
     @State private var prezzo: Double? = nil
     @State private var costo: Double? = nil
     @State private var commissioni: Double? = nil
@@ -127,73 +135,63 @@ struct ArticoloForm: View {
     @State private var stato: Stato = .daSpedire
     @State private var data = Date()
     @State private var codice = ""
-    @State private var foto: Data? = nil
-    @State private var scelta: PhotosPickerItem? = nil
     @State private var caricato = false
+    @State private var mostraLibreria = false
 
-    private let emojis = ["👕", "👖", "👗", "🧥", "👟", "👜", "🧶", "🧢", "👠", "🥾", "📚", "🎮", "📱", "🧸", "💍", "📦"]
     private var siti: [String] {
         sitiTesto.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
     }
+    private var inLibreria: [Articolo] { tutti.filter { !$0.venduto } }
     private var guadagno: Double { (prezzo ?? 0) - (costo ?? 0) - (commissioni ?? 0) }
+    private var titolo: String {
+        if vendi, let a = articolo { return a.nome }
+        if articolo != nil { return "Modifica" }
+        return statoIniziale == .inVendita ? "Nuovo articolo" : "Nuova vendita"
+    }
 
     var body: some View {
         NavigationStack {
             Form {
-                Section {
-                    PhotosPicker(selection: $scelta, matching: .images) {
-                        if let f = foto, let img = UIImage(data: f) {
-                            Image(uiImage: img).resizable().scaledToFill().frame(height: 140).frame(maxWidth: .infinity).clipped()
-                        } else {
-                            Label("Aggiungi foto", systemImage: "camera").frame(maxWidth: .infinity, minHeight: 60)
+                if articolo == nil, statoIniziale != .inVendita, !inLibreria.isEmpty {
+                    Section {
+                        Button { mostraLibreria = true } label: {
+                            Label(scelto == nil ? "Scegli dalla libreria" : "Dalla libreria: \(scelto!.nome)", systemImage: "books.vertical")
                         }
-                    }
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack {
-                            ForEach(emojis, id: \.self) { e in
-                                Text(e).font(.title2).padding(4)
-                                    .background(e == emoji ? Color.inchiostro.opacity(0.15) : .clear, in: Circle())
-                                    .onTapGesture { emoji = e }
-                            }
-                        }
+                        .accessibilityIdentifier("scegliLibreria")
                     }
                 }
                 Section {
                     TextField("Articolo", text: $nome).accessibilityIdentifier("campoNome")
-                    LabeledContent("Prezzo di vendita") {
-                        TextField("0,00", value: $prezzo, format: .number.precision(.fractionLength(0...2)))
-                            .keyboardType(.decimalPad).multilineTextAlignment(.trailing)
-                            .accessibilityIdentifier("campoPrezzo")
+                    campo("Pagato da te", $costo, id: "campoCosto")
+                    if stato != .inVendita {
+                        campo(vendi ? "Venduto a" : "Prezzo di vendita", $prezzo, id: "campoPrezzo")
+                        campo("Commissioni", $commissioni, id: "campoCommissioni")
+                        Picker("Sito", selection: $sito) {
+                            ForEach(siti.contains(sito) ? siti : siti + [sito], id: \.self) { Text($0) }
+                        }
                     }
-                    LabeledContent("Pagato da te") {
-                        TextField("0,00", value: $costo, format: .number.precision(.fractionLength(0...2)))
-                            .keyboardType(.decimalPad).multilineTextAlignment(.trailing)
-                    }
-                    LabeledContent("Commissioni") {
-                        TextField("0,00", value: $commissioni, format: .number.precision(.fractionLength(0...2)))
-                            .keyboardType(.decimalPad).multilineTextAlignment(.trailing)
-                    }
-                    Picker("Sito", selection: $sito) {
-                        ForEach(siti.contains(sito) ? siti : siti + [sito], id: \.self) { Text($0) }
-                    }
-                    DatePicker("Data", selection: $data, displayedComponents: .date)
+                    DatePicker(stato == .inVendita ? "Caricato il" : "Venduto il", selection: $data, displayedComponents: .date)
                 }
-                Section("Stato") {
-                    Picker("Stato", selection: $stato) {
-                        ForEach(Stato.allCases) { Text($0.nomeSingolo).tag($0) }
-                    }
-                    .pickerStyle(.segmented)
-                    if stato.rawValue >= Stato.spedito.rawValue {
-                        TextField("Codice di spedizione (facoltativo)", text: $codice)
+                if !(articolo == nil && statoIniziale == .inVendita) {
+                    Section(vendi ? "A che punto sei" : "Stato") {
+                        Picker("Stato", selection: $stato) {
+                            ForEach(Stato.allCases.filter { !vendi || $0 != .inVendita }) { Text($0.nomeSingolo).tag($0) }
+                        }
+                        .pickerStyle(.segmented)
+                        if stato.rawValue >= Stato.spedito.rawValue {
+                            TextField("Codice di spedizione (facoltativo)", text: $codice)
+                        }
                     }
                 }
-                Section {
-                    LabeledContent("Guadagno stimato") {
-                        Text(eur(guadagno)).bold().foregroundStyle(guadagno >= 0 ? .green : .red)
+                if stato != .inVendita {
+                    Section {
+                        LabeledContent("Guadagno") {
+                            Text(eur(guadagno)).bold().foregroundStyle(guadagno >= 0 ? .green : .red)
+                        }
                     }
                 }
             }
-            .navigationTitle(articolo == nil ? (statoIniziale == .inVendita ? "Nuovo articolo" : "Nuova vendita") : "Modifica")
+            .navigationTitle(titolo)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Annulla") { dismiss() } }
@@ -205,45 +203,67 @@ struct ArticoloForm: View {
             .onAppear(perform: carica)
             .onChange(of: prezzo) { _, p in
                 // Commissioni proposte in automatico, se impostate in Altro.
-                if articolo == nil, commissionePerc > 0, let p { commissioni = Calcoli.commissione(prezzo: p, percentuale: commissionePerc) }
+                if (articolo == nil || vendi), commissionePerc > 0, let p { commissioni = Calcoli.commissione(prezzo: p, percentuale: commissionePerc) }
             }
-            .onChange(of: scelta) { _, item in
-                Task {
-                    if let d = try? await item?.loadTransferable(type: Data.self),
-                       let img = UIImage(data: d) {
-                        foto = img.ridotta(lato: 1200).jpegData(compressionQuality: 0.75)
+            .sheet(isPresented: $mostraLibreria) {
+                NavigationStack {
+                    List(inLibreria) { a in
+                        Button {
+                            scelto = a; nome = a.nome; costo = a.costo; mostraLibreria = false
+                        } label: {
+                            VStack(alignment: .leading) {
+                                Text(a.nome).bold().foregroundStyle(Color.primary)
+                                Text("pagato \(eur(a.costo))").font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
                     }
+                    .navigationTitle("Libreria")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar { Button("Chiudi") { mostraLibreria = false } }
                 }
             }
+        }
+    }
+
+    private func campo(_ titolo: String, _ valore: Binding<Double?>, id: String) -> some View {
+        LabeledContent(titolo) {
+            TextField("0,00", value: valore, format: .number.precision(.fractionLength(0...2)))
+                .keyboardType(.decimalPad).multilineTextAlignment(.trailing)
+                .accessibilityIdentifier(id)
         }
     }
 
     private func carica() {
         guard !caricato else { return }
         caricato = true
+        sito = siti.first ?? "Vinted"
         if let a = articolo {
-            nome = a.nome; emoji = a.emoji; prezzo = a.prezzo; costo = a.costo; commissioni = a.commissioni
-            sito = a.sito; stato = a.stato; data = a.dataVendita ?? a.creato; codice = a.codiceSpedizione; foto = a.foto
+            nome = a.nome; costo = a.costo; codice = a.codiceSpedizione
+            if vendi {
+                stato = .daSpedire
+                data = Date()
+            } else {
+                prezzo = a.prezzo; commissioni = a.commissioni; sito = a.sito
+                stato = a.stato; data = a.dataVendita ?? a.creato
+            }
         } else {
             stato = statoIniziale
-            sito = siti.first ?? "Vinted"
         }
     }
 
     private func salva() {
-        let a = articolo ?? Articolo()
-        if articolo == nil { context.insert(a) }
+        let a = articolo ?? scelto ?? Articolo()
+        if articolo == nil && scelto == nil { context.insert(a); a.creato = data }
         a.nome = nome.trimmingCharacters(in: .whitespaces)
-        a.emoji = emoji
-        a.prezzo = prezzo ?? 0
         a.costo = costo ?? 0
-        a.commissioni = commissioni ?? 0
-        a.sito = sito
+        if stato != .inVendita {
+            a.prezzo = prezzo ?? 0
+            a.commissioni = commissioni ?? 0
+            a.sito = sito
+        }
         a.codiceSpedizione = codice
-        a.foto = foto
-        if articolo == nil { a.creato = data }
         if a.stato != stato { a.imposta(stato, il: stato == .daSpedire ? data : Date()) }
-        if stato != .inVendita { a.dataVendita = data }
+        if stato != .inVendita { a.dataVendita = data } else if articolo != nil { a.creato = data }
         dismiss()
     }
 }

@@ -45,4 +45,16 @@ final class CalcoliTests: XCTestCase {
         XCTAssertTrue(csv.contains("Borsa, vintage;Vinted;Pagato;"))
         XCTAssertTrue(csv.contains("25,00"))
     }
+
+    func testRicerca() {
+        let lista = [
+            Articolo(nome: "Giacca jeans", costo: 6, stato: .daSpedire),
+            Articolo(nome: "Giacca pelle", costo: 20),
+            Articolo(nome: "Stivali", costo: 15),
+        ]
+        XCTAssertEqual(Calcoli.cerca(lista, testo: "giacca", filtro: 0).count, 2)
+        XCTAssertEqual(Calcoli.cerca(lista, testo: "GIACCA", filtro: 1).map(\.nome), ["Giacca pelle"])
+        XCTAssertEqual(Calcoli.cerca(lista, testo: "giacca", filtro: 2).map(\.nome), ["Giacca jeans"])
+        XCTAssertEqual(Calcoli.cerca(lista, testo: " ", filtro: 0).count, 3)
+    }
 }
