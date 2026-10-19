@@ -8,6 +8,7 @@ on:
         default: false
   push:
     branches: [main, "claude/**"]
+    paths-ignore: ["docs/**", "*.md", ".gitignore"]
 
 permissions:
   contents: write

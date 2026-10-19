@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Vendite">
+<meta name="theme-color" content="#eef0f4">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="manifest" href="manifest.json">
+<title>Vendite</title>
+<style>
+:root{--ink:#1d2433;--bg:#eef0f4;--card:#fff;--sub:#7a8394;--line:#e3e6ec;--o:#ff9f0a;--b:#0a84ff;--g:#30c552;--grey:#8e96a3;--red:#ff3b30}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:16px -apple-system,BlinkMacSystemFont,"Helvetica Neue",sans-serif}
+body{padding:env(safe-area-inset-top) 0 calc(76px + env(safe-area-inset-bottom))}
+button{font:inherit;color:inherit;border:0;background:none;padding:0;cursor:pointer}
+input,select{font:inherit;color:var(--ink)}
+.page{display:none;padding:8px 16px 20px}.page.on{display:block}
+.top{display:flex;align-items:center;justify-content:space-between;margin:10px 2px 12px}
+h1{font-size:32px;font-weight:800;margin:0}
+.round{width:38px;height:38px;border-radius:50%;background:var(--card);display:grid;place-items:center;font-size:18px}
+.plus{font-size:30px;color:var(--b);font-weight:300}
+.sum{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;background:var(--card);border-radius:14px;padding:12px;margin-bottom:14px}
+.sum small,.lab,small{color:var(--sub);font-size:12px}.sum b{display:block;font-size:18px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sec{margin-bottom:14px}.sech{font-weight:700;font-size:17px;margin-bottom:6px}.sech small{font-weight:400}
+.row{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;margin:0 -16px;padding:0 16px}.row::-webkit-scrollbar{display:none}
+.cd{flex:0 0 150px;background:var(--card);border-radius:12px;padding:10px 12px;border-left:4px solid;text-align:left}
+.cd b{display:block;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.cd small{font-size:12px}
+.empty{background:#ffffff99;border-radius:12px;padding:12px;color:var(--sub);font-size:14px}
+.btn{display:block;width:100%;background:var(--ink);color:#fff;border-radius:14px;padding:15px;font-weight:700;font-size:17px;text-align:center}
+.box{background:var(--card);border-radius:14px;padding:0 14px;margin-bottom:12px}
+.kv{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 0;border-bottom:1px solid var(--line);min-height:46px}
+.kv:last-child{border-bottom:0}.kv b{text-align:right}
+.kv input,.kv select{border:0;background:none;text-align:right;font-weight:600;width:55%;padding:0;outline:none}
+.kv input[type=date]{width:auto;min-width:0}
+.lab{margin:16px 4px 6px;text-transform:uppercase;font-size:12px}
+.tag{display:inline-block;font-size:13px;font-weight:700;padding:4px 10px;border-radius:10px}
+.pill{background:var(--o);color:#fff;border-radius:20px;padding:7px 14px;font-size:13px;font-weight:700;flex:none}
+.item{display:flex;align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid var(--line)}.item:last-child{border-bottom:0}
+.item .t{flex:1;min-width:0;text-align:left}.item .t b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.seg{display:flex;background:#dde1e8;border-radius:10px;padding:3px;margin-bottom:12px}
+.seg button{flex:1;padding:7px 2px;border-radius:8px;font-size:13px;font-weight:600}
+.seg button.on{background:var(--card);box-shadow:0 1px 3px #0002}
+.srch{width:100%;border:0;border-radius:10px;padding:10px 12px;background:#dde1e8;margin-bottom:10px;outline:none}
+.tabs{position:fixed;left:0;right:0;bottom:0;background:#fffffff2;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-top:1px solid var(--line);display:flex;padding:6px 0 calc(6px + env(safe-area-inset-bottom));z-index:5}
+.tabs button{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:10px;font-weight:600;color:#9aa1ad}
+.tabs button.on{color:var(--ink)}.tabs svg{width:25px;height:25px}
+.sheet{position:fixed;inset:0;background:var(--bg);z-index:10;overflow-y:auto;padding:calc(env(safe-area-inset-top) + 8px) 16px calc(30px + env(safe-area-inset-bottom));transform:translateY(100%);transition:transform .28s ease}
+.sheet.on{transform:none}
+.nav{display:flex;justify-content:space-between;align-items:center;margin:6px 0 8px;min-height:30px}
+.nav button{color:var(--b);font-size:17px}.nav .ok{font-weight:700;color:var(--ink)}.nav .ok:disabled{opacity:.35}
+.nav .tt{font-weight:700}
+.step{display:flex;gap:12px;align-items:center;padding:9px 0}
+.dot{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;color:#fff;font-size:13px;flex:none}
+.bars{display:flex;align-items:flex-end;justify-content:space-between;height:140px;gap:8px;padding:10px 0}
+.bars div{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:4px;font-size:11px;color:var(--sub)}
+.bars i{display:block;width:100%;max-width:30px;border-radius:6px;background:#c9cfdb;min-height:3px}
+.prog{height:10px;background:#e3e6ec;border-radius:5px;overflow:hidden;margin:8px 0 4px}.prog i{display:block;height:100%;background:var(--g)}
+.toggle{width:51px;height:31px;border-radius:16px;background:#e3e6ec;position:relative;flex:none}
+.toggle::after{content:"";position:absolute;top:2px;left:2px;width:27px;height:27px;border-radius:50%;background:#fff;box-shadow:0 2px 4px #0003;transition:left .2s}
+.toggle.on{background:var(--g)}.toggle.on::after{left:22px}
+.warn{background:#fff4e0;border-radius:14px;padding:12px 14px;margin-bottom:12px;font-size:14px;display:flex;gap:10px;align-items:center}
+.warn button{color:var(--b);font-weight:700;margin-left:auto;flex:none}
+.toast{position:fixed;left:50%;bottom:calc(90px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 16px;border-radius:12px;font-size:14px;opacity:0;transition:opacity .2s;z-index:20;pointer-events:none;white-space:nowrap}
+.toast.on{opacity:1}
+.del{color:var(--red);display:block;margin:14px auto;font-size:16px}
+.note{font-size:12px;color:var(--sub);margin:-4px 6px 12px}
+.big{font-size:28px;font-weight:800}
+.mini{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}.mini .box{margin:0;padding:12px 14px}.mini b{display:block;font-size:17px}
+</style>
+</head>
+<body>
+
+<!-- ORDINI -->
+<section class="page on" id="p-ordini">
+  <div class="top"><h1>Ordini</h1><button class="round" id="apriCerca" aria-label="Cerca">🔍</button></div>
+  <div id="avvisoBackup"></div>
+  <div class="sum" id="sumOrdini"></div>
+  <div id="file"></div>
+  <button class="btn" id="nuovaVendita">+ Nuova vendita</button>
+</section>
+
+<!-- LIBRERIA -->
+<section class="page" id="p-libreria">
+  <div class="top"><h1>Libreria</h1><button class="plus" id="nuovoArticolo" aria-label="Nuovo articolo">＋</button></div>
+  <div class="sum" id="sumLib"></div>
+  <div id="lista"></div>
+</section>
+
+<!-- STATISTICHE -->
+<section class="page" id="p-stat"><div class="top"><h1>Statistiche</h1></div><div id="stat"></div></section>
+
+<!-- ALTRO -->
+<section class="page" id="p-altro">
+  <div class="top"><h1>Altro</h1></div>
+  <div class="lab">Vendite</div>
+  <div class="box">
+    <div class="kv"><span>Siti dove vendi</span><input id="optSiti"></div>
+    <div class="kv"><span>Obiettivo del mese (€)</span><input id="optObiettivo" inputmode="decimal"></div>
+    <div class="kv"><span>Commissioni (%)</span><input id="optComm" inputmode="decimal" placeholder="0"></div>
+  </div>
+  <div class="box" id="obiettivo"></div>
+  <div class="lab">Backup</div>
+  <div class="box">
+    <div class="kv"><span>Salva backup</span><button style="color:var(--b);font-weight:600" id="salvaBackup">Salva ›</button></div>
+    <div class="kv"><span>Ultimo backup</span><b id="ultimoBackup"></b></div>
+    <div class="kv"><span>Ricordamelo ogni</span><select id="optRicorda"><option value="3">3 giorni</option><option value="7">7 giorni</option><option value="14">14 giorni</option><option value="0">mai</option></select></div>
+  </div>
+  <div class="note">Il backup è un file che salvi nell'app File (meglio in iCloud Drive). I dati dell'app stanno solo su questo iPhone, dentro Safari.</div>
+  <div class="lab">Esporta</div>
+  <div class="box">
+    <div class="kv"><span>📊 Excel (.xlsx)</span><button style="color:var(--b)" id="esportaXlsx">›</button></div>
+    <div class="kv"><span>🧾 CSV</span><button style="color:var(--b)" id="esportaCsv">›</button></div>
+  </div>
+  <div class="lab">Ripristino</div>
+  <div class="box">
+    <div class="kv"><label for="fileRipristino" style="color:var(--b);width:100%">Ripristina da un backup ›</label><input type="file" id="fileRipristino" accept=".json,application/json" hidden></div>
+  </div>
+  <div class="note" style="text-align:center;margin-top:16px" id="versione"></div>
+</section>
+
+<nav class="tabs">
+  <button class="on" data-p="ordini"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2 3 6.5v11L12 22l9-4.5v-11L12 2zm0 2.2 6.6 3.3L12 10.8 5.4 7.5 12 4.2zM5 9.1l6 3v7.6l-6-3V9.1zm8 10.6v-7.6l6-3v7.6l-6 3z"/></svg>Ordini</button>
+  <button data-p="libreria"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 3h4v18H4zM10 3h4v18h-4zM16.2 4.1l3.8-1 4 17-3.8 1z" transform="scale(.92) translate(1 1)"/></svg>Libreria</button>
+  <button data-p="stat"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="12" width="4.5" height="9" rx="1.5"/><rect x="9.75" y="7" width="4.5" height="14" rx="1.5"/><rect x="16.5" y="3" width="4.5" height="18" rx="1.5"/></svg>Statistiche</button>
+  <button data-p="altro"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7zm9 4.7v-2.4l-2.5-.6a7 7 0 0 0-.8-1.9l1.4-2.2-1.7-1.7-2.2 1.4a7 7 0 0 0-1.9-.8L12.7 2h-2.4l-.6 2.5a7 7 0 0 0-1.9.8L5.6 3.9 3.9 5.6l1.4 2.2a7 7 0 0 0-.8 1.9L2 10.3v2.4l2.5.6c.2.7.4 1.3.8 1.9l-1.4 2.2 1.7 1.7 2.2-1.4c.6.4 1.2.6 1.9.8l.6 2.5h2.4l.6-2.5c.7-.2 1.3-.4 1.9-.8l2.2 1.4 1.7-1.7-1.4-2.2c.4-.6.6-1.2.8-1.9l2.5-.6z"/></svg>Altro</button>
+</nav>
+
+<div class="sheet" id="sheet"></div>
+<div class="toast" id="toast"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
