@@ -1,6 +1,6 @@
 "use strict";
 // Vendite (web app): dati salvati in questo browser, backup in un file.
-const VERSIONE = "2.1";
+const VERSIONE = "2.2";
 const CHIAVE = "vendite-dati", OPZ = "vendite-opzioni";
 const STATI = [
   { nome: "In libreria", plur: "In libreria", col: "var(--grey)", btn: "Venduto" },
