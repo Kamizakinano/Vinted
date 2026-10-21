@@ -1,6 +1,6 @@
 "use strict";
 // Vendite (web app): dati salvati in questo browser, backup in un file.
-const VERSIONE = "2.4";
+const VERSIONE = "2.5";
 const CHIAVE = "vendite-dati", OPZ = "vendite-opzioni";
 const STATI = [
   { nome: "In libreria", plur: "In libreria", col: "var(--grey)", btn: "Venduto" },
@@ -129,6 +129,12 @@ function disegnaOrdini() {
   const serve = opz.ricorda > 0 && articoli.length > 0 && opz.cambiDopoBackup > 0 && giorni >= opz.ricorda;
   $("#avvisoBackup").innerHTML = serve ? `<div class="warn">💾 <span>${opz.ultimoBackup ? `Ultimo backup ${Math.floor(giorni)} giorni fa` : "Non hai ancora fatto un backup"}</span><button id="backupOra">Salva</button></div>` : "";
   if (serve) $("#backupOra").onclick = salvaBackup;
+  // Su iPhone l'app aperta dall'icona nella Home ha dati separati da Safari: lo spieghiamo.
+  const daHome = navigator.standalone || matchMedia("(display-mode: standalone)").matches;
+  $("#avvisoVuoto").innerHTML = articoli.length === 0 ? `<div class="warn" style="display:block;line-height:1.4">📲 <b>${daHome ? "Non vedi i dati inseriti in Safari?" : "Benvenuto!"}</b><br>
+    <small style="color:var(--ink)">${daHome
+      ? "Su iPhone l'app aperta dall'icona ha un archivio separato da Safari. Per portarli qui: apri il sito in Safari → Altro → <b>Salva backup</b>; poi qui → Altro → <b>Ripristina da un backup</b>. Oppure accedi in Altro → Sincronizzazione: i dati arrivano da soli."
+      : "Consiglio: aggiungi l'app alla schermata Home (Condividi → Aggiungi alla schermata Home) e usala sempre da lì, perché Safari e l'icona hanno archivi separati."}</small></div>` : "";
   const vecchi = fermi().filter(a => giorniFermo(a) > GIORNI_FERMO);
   $("#avvisoFermi").innerHTML = vecchi.length ? `<button class="warn fermi" id="vediFermi" style="width:100%;text-align:left;border-left:4px solid var(--o)">⏰
     <span><b>${vecchi.length === 1 ? "1 articolo fermo" : vecchi.length + " articoli fermi"} da più di ${GIORNI_FERMO} giorni</b><br><small>Prova ad abbassare il prezzo del 10%</small></span><span style="color:var(--b);font-weight:700;margin-left:auto">Vedi ›</span></button>` : "";
