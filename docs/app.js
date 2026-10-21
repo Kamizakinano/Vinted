@@ -1,6 +1,6 @@
 "use strict";
 // Vendite (web app): dati salvati in questo browser, backup in un file.
-const VERSIONE = "2.2";
+const VERSIONE = "2.3";
 const CHIAVE = "vendite-dati", OPZ = "vendite-opzioni";
 const STATI = [
   { nome: "In libreria", plur: "In libreria", col: "var(--grey)", btn: "Venduto" },
@@ -34,6 +34,9 @@ function salvaOpz() { localStorage.setItem(OPZ, JSON.stringify(opz)); }
 const siti = () => opz.siti.split(",").map(s => s.trim()).filter(Boolean);
 const guadagno = a => (a.prezzo || 0) - (a.costo || 0) - (a.commissioni || 0);
 const venduto = a => a.stato > 0;
+// Gli articoli salvati prima della 2.3 non hanno "pubblicato": valgono come già pubblicati.
+const pubblicato = a => a.pubblicato !== false;
+let filtroLib = 0; // 0 da pubblicare, 1 pubblicati
 const nuovoId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
 /** Cambia stato e segna le date dei passaggi. */
@@ -81,13 +84,21 @@ function disegnaOrdini() {
 
 function disegnaLibreria() {
   const lib = articoli.filter(a => !venduto(a)).sort((x, y) => y.creato.localeCompare(x.creato));
-  $("#sumLib").innerHTML = `<div><small>Articoli</small><b>${lib.length}</b></div>
-    <div><small>Hai speso</small><b>${eur(articoli.reduce((s, a) => s + (a.costo || 0), 0))}</b></div>
-    <div><small>Venduti</small><b>${articoli.length - lib.length}</b></div>`;
-  $("#lista").innerHTML = lib.length ? `<div class="box">${lib.map(a => `<div class="item">
-      <button class="t" data-id="${a.id}"><b>${esc(a.nome)}</b><small>pagato ${eur(a.costo)} · ${dataBreve(a.creato)}</small></button>
-      <button class="pill" data-vendi="${a.id}">Venduto</button></div>`).join("")}</div>`
-    : `<div class="empty" style="text-align:center;padding:30px 16px">📚<br><b style="color:var(--ink)">Libreria vuota</b><br>Tocca ＋ per caricare un articolo e quanto l'hai pagato.</div>`;
+  const daPub = lib.filter(a => !pubblicato(a)), pub = lib.filter(pubblicato);
+  const mostrati = filtroLib === 0 ? daPub : pub;
+  $("#sumLib").innerHTML = `<div><small>Da pubblicare</small><b style="color:var(--p)">${daPub.length}</b></div>
+    <div><small>Pubblicati</small><b>${pub.length}</b></div>
+    <div><small>Hai speso</small><b>${eur(lib.reduce((s, a) => s + (a.costo || 0), 0))}</b></div>`;
+  const seg = `<div class="seg">${[["Da pubblicare", daPub.length, "var(--p)"], ["Pubblicati", pub.length, "var(--ink)"]].map(([t, n, c], i) =>
+    `<button data-lib="${i}" class="${filtroLib === i ? "on" : ""}" style="${filtroLib === i ? `background:${c};color:#fff` : ""}">${t} ${n}</button>`).join("")}</div>`;
+  const riga = a => {
+    const info = ["pagato " + eur(a.costo), a.dove, pubblicato(a) && a.prezzoRichiesto ? "in vendita a " + eur(a.prezzoRichiesto) : "", dataBreve(a.creato)].filter(Boolean).join(" · ");
+    return `<div class="item"><button class="t" data-id="${a.id}"><b>${esc(a.nome)}</b><small>${esc(info)}</small>
+      ${a.note ? `<span class="nota">📝 ${esc(a.note)}</span>` : ""}</button>
+      ${pubblicato(a) ? `<button class="pill" data-vendi="${a.id}">Venduto</button>` : `<button class="pill" style="background:var(--p)" data-pubblica="${a.id}">Pubblicato</button>`}</div>`;
+  };
+  $("#lista").innerHTML = seg + (mostrati.length ? `<div class="box">${mostrati.map(riga).join("")}</div>`
+    : `<div class="empty" style="text-align:center;padding:30px 16px">📚<br><b style="color:var(--ink)">${filtroLib === 0 ? "Niente da pubblicare" : "Nessun articolo pubblicato"}</b><br>Tocca ＋ per caricare un articolo, quanto l'hai pagato e le tue note.</div>`);
 }
 
 function disegnaStat() {
@@ -129,6 +140,14 @@ $("#optRicorda").onchange = e => { opz.ricorda = +e.target.value; salvaOpz(); di
 
 // Tocchi su schede e pulsanti nelle liste
 document.addEventListener("click", e => {
+  const fl = e.target.closest("[data-lib]");
+  if (fl) { filtroLib = +fl.dataset.lib; return disegnaLibreria(); }
+  const pb = e.target.closest("[data-pubblica]");
+  if (pb) {
+    const a = articoli.find(x => x.id === pb.dataset.pubblica);
+    a.pubblicato = true; salva([a]); toast("Spostato tra i pubblicati");
+    return;
+  }
   const v = e.target.closest("[data-vendi]");
   if (v) return apriForm(articoli.find(a => a.id === v.dataset.vendi), { vendi: true });
   const d = e.target.closest("[data-id]");
@@ -158,20 +177,23 @@ function apriDettaglio(id) {
   const html = () => {
     const a = articoli.find(x => x.id === id);
     if (!a) return "";
-    const st = STATI[a.stato];
+    const st = a.stato === 0 && !pubblicato(a) ? { ...STATI[0], nome: "Da pubblicare", col: "var(--p)" } : a.stato === 0 ? { ...STATI[0], nome: "Pubblicato" } : STATI[a.stato];
     const tappa = (ok, t, d, nota) => `<div class="step"><span class="dot" style="background:${ok ? "var(--g)" : "#d0d4dc"}">${ok ? "✓" : ""}</span><div><b>${t}</b><br><small>${d ? new Date(d).toLocaleString("it-IT", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : ""}${nota ? " · " + esc(nota) : ""}</small></div></div>`;
     return `<div class="nav"><button data-a="chiudi">‹ Indietro</button><button data-a="modifica">Modifica</button></div>
       <h1 style="margin:6px 0 8px">${esc(a.nome)}</h1>
       <span class="tag" style="color:${st.col};background:color-mix(in srgb, ${st.col} 15%, transparent)">● ${st.nome}</span>
       <div class="box" style="margin-top:12px">
         <div class="kv"><span>Pagato da te</span><b>${eur(a.costo)}</b></div>
+        ${a.dove ? `<div class="kv"><span>Comprato da / dove</span><b>${esc(a.dove)}</b></div>` : ""}
+        ${!venduto(a) && a.prezzoRichiesto ? `<div class="kv"><span>Prezzo che chiederò</span><b>${eur(a.prezzoRichiesto)}</b></div>` : ""}
         ${venduto(a) ? `<div class="kv"><span>Venduto a</span><b>${eur(a.prezzo)}</b></div>
         <div class="kv"><span>Commissioni</span><b>${eur(-(a.commissioni || 0))}</b></div>
         <div class="kv"><span>Sito</span><b>${esc(a.sito)}</b></div>
         <div class="kv"><span>Guadagno</span><b style="color:${guadagno(a) >= 0 ? "var(--g)" : "var(--red)"}">${eur(guadagno(a))}</b></div>` : ""}
       </div>
-      <div class="box">${tappa(true, "Caricato", a.creato)}${tappa(venduto(a), "Venduto", a.dataVendita)}${tappa(!!a.dataSpedizione, "Spedito", a.dataSpedizione, a.codice)}${tappa(a.stato === 3, "Pagato", a.dataPagamento)}</div>
-      ${st.btn ? `<button class="btn" data-a="avanza" style="background:${STATI[Math.min(3, a.stato + 1)].col}">${st.btn}</button>` : ""}
+      ${a.note ? `<div class="lab">Note</div><div class="box" style="padding:12px 14px;white-space:pre-wrap">${esc(a.note)}</div>` : ""}
+      <div class="box">${tappa(true, "Comprato", a.creato)}${venduto(a) ? "" : tappa(pubblicato(a), "Pubblicato", null)}${tappa(venduto(a), "Venduto", a.dataVendita)}${tappa(!!a.dataSpedizione, "Spedito", a.dataSpedizione, a.codice)}${tappa(a.stato === 3, "Pagato", a.dataPagamento)}</div>
+      ${a.stato === 0 && !pubblicato(a) ? `<button class="btn" data-a="pubblica" style="background:var(--p)">Segna come pubblicato</button>` : st.btn ? `<button class="btn" data-a="avanza" style="background:${STATI[Math.min(3, a.stato + 1)].col}">${st.btn}</button>` : ""}
       <button class="del" data-a="elimina">Elimina</button>`;
   };
   apriFoglio(html, s => s.onclick = e => {
@@ -179,6 +201,7 @@ function apriDettaglio(id) {
     const a = articoli.find(x => x.id === id);
     if (b.dataset.a === "chiudi") chiudiFoglio();
     if (b.dataset.a === "modifica") apriForm(a, {});
+    if (b.dataset.a === "pubblica") { a.pubblicato = true; salva([a]); mostraFoglio(); }
     if (b.dataset.a === "avanza") { if (a.stato === 0) apriForm(a, { vendi: true }); else { imposta(a, a.stato + 1); salva([a]); mostraFoglio(); } }
     if (b.dataset.a === "elimina" && confirm(`Eliminare "${a.nome}"?`)) { articoli = articoli.filter(x => x !== a); salva([], [a.id]); chiudiFoglio(); }
   });
@@ -188,7 +211,8 @@ function apriDettaglio(id) {
 function apriForm(art, { stato = 1, vendi = false }) {
   const nuovo = !art;
   const f = {
-    nome: art?.nome || "", costo: art?.costo, prezzo: vendi ? undefined : art?.prezzo,
+    nome: art?.nome || "", costo: art?.costo, prezzo: vendi ? art.prezzoRichiesto : art?.prezzo,
+    dove: art?.dove || "", note: art?.note || "", richiesto: art?.prezzoRichiesto, pub: art ? pubblicato(art) : filtroLib === 1,
     comm: vendi ? undefined : art?.commissioni, sito: (!vendi && art?.sito) || siti()[0] || "Vinted",
     stato: vendi ? 1 : art ? art.stato : stato, codice: art?.codice || "",
     data: (!vendi && art ? (art.stato ? art.dataVendita : art.creato) : null)?.slice(0, 10) || oggiISO(), scelto: null,
@@ -204,11 +228,17 @@ function apriForm(art, { stato = 1, vendi = false }) {
       <div class="box">
         <div class="kv"><span>Articolo</span><input id="fNome" value="${esc(f.nome)}" placeholder="Nome" autocomplete="off"></div>
         <div class="kv"><span>Pagato da te</span><input id="fCosto" inputmode="decimal" value="${n(f.costo)}" placeholder="0,00 €"></div>
+        <div class="kv"><span>Comprato da / dove</span><input id="fDove" value="${esc(f.dove)}" placeholder="facoltativo"></div>
+        ${vend ? "" : `<div class="kv"><span>Prezzo che chiederò</span><input id="fRichiesto" inputmode="decimal" value="${n(f.richiesto)}" placeholder="0,00 €"></div>`}
         ${vend ? `<div class="kv"><span>${vendi ? "Venduto a" : "Prezzo di vendita"}</span><input id="fPrezzo" inputmode="decimal" value="${n(f.prezzo)}" placeholder="0,00 €"></div>
         <div class="kv"><span>Commissioni</span><input id="fComm" inputmode="decimal" value="${n(f.comm)}" placeholder="0,00 €"></div>
         <div class="kv"><span>Sito</span><select id="fSito">${sl.map(s => `<option ${s === f.sito ? "selected" : ""}>${esc(s)}</option>`).join("")}</select></div>` : ""}
-        <div class="kv"><span>${vend ? "Venduto il" : "Caricato il"}</span><input type="date" id="fData" value="${f.data}"></div>
+        <div class="kv"><span>${vend ? "Venduto il" : "Comprato il"}</span><input type="date" id="fData" value="${f.data}"></div>
       </div>
+      <div class="lab">Note</div>
+      <div class="box"><textarea id="fNote" rows="3" placeholder="Es. manca un bottone, prezzo minimo 28 €, taglia L">${esc(f.note)}</textarea></div>
+      ${f.stato === 0 ? `<div class="lab">${soloLibreria ? "A che punto sei" : "In libreria"}</div>
+      <div class="seg">${["Da pubblicare", "Pubblicato"].map((t, i) => `<button data-pub="${i}" class="${+f.pub === i ? "on" : ""}" style="${+f.pub === i ? `background:${i ? "var(--ink)" : "var(--p)"};color:#fff` : ""}">${t}</button>`).join("")}</div>` : ""}
       ${soloLibreria ? "" : `<div class="lab">${vendi ? "A che punto sei" : "Stato"}</div>
       <div class="seg">${STATI.map((s, i) => vendi && i === 0 ? "" : `<button data-st="${i}" class="${f.stato === i ? "on" : ""}" style="${f.stato === i ? `background:${s.col};color:#fff` : ""}">${s.nome}</button>`).join("")}</div>
       ${f.stato >= 2 ? `<div class="box"><div class="kv"><span>Codice spedizione</span><input id="fCodice" value="${esc(f.codice)}" placeholder="facoltativo"></div></div>` : ""}`}
@@ -222,6 +252,9 @@ function apriForm(art, { stato = 1, vendi = false }) {
     if ($("#fSito")) f.sito = v("fSito");
     if ($("#fData")) f.data = v("fData") || oggiISO();
     if ($("#fCodice")) f.codice = v("fCodice");
+    if ($("#fDove")) f.dove = v("fDove").trim();
+    if ($("#fNote")) f.note = v("fNote").trim();
+    if ($("#fRichiesto")) f.richiesto = v("fRichiesto") === "" ? undefined : num(v("fRichiesto"));
   };
   const aggiorna = () => {
     $("#ok").disabled = !$("#fNome").value.trim();
@@ -241,20 +274,26 @@ function apriForm(art, { stato = 1, vendi = false }) {
     s.onclick = e => {
       const st = e.target.closest("[data-st]");
       if (st) { leggi(); f.stato = +st.dataset.st; mostraFoglio(); return; }
+      const pb = e.target.closest("[data-pub]");
+      if (pb) { leggi(); f.pub = pb.dataset.pub === "1"; mostraFoglio(); return; }
       const b = e.target.closest("[data-a]"); if (!b) return;
       if (b.dataset.a === "annulla") chiudiFoglio();
-      if (b.dataset.a === "libreria") { leggi(); scegliDaLibreria(a => { f.scelto = a; f.nome = a.nome; f.costo = a.costo; }); }
+      if (b.dataset.a === "libreria") { leggi(); scegliDaLibreria(a => { f.scelto = a; f.nome = a.nome; f.costo = a.costo; f.dove = a.dove || ""; f.note = a.note || ""; if (f.prezzo == null) f.prezzo = a.prezzoRichiesto; }); }
       if (b.dataset.a === "salva") {
         leggi();
         const a = art || f.scelto || { id: nuovoId(), creato: new Date(f.data + "T12:00:00").toISOString(), stato: 0 };
         if (!art && !f.scelto) articoli.push(a);
         a.nome = f.nome.trim(); a.costo = f.costo || 0; a.codice = f.codice;
+        a.dove = f.dove; a.note = f.note;
+        if (f.richiesto != null) a.prezzoRichiesto = f.richiesto; else if (f.stato === 0) delete a.prezzoRichiesto;
+        if (f.stato === 0) a.pubblicato = f.pub; else a.pubblicato = true;
         if (f.stato > 0) { a.prezzo = f.prezzo || 0; a.commissioni = f.comm || 0; a.sito = f.sito; }
         const dataISO = new Date(f.data + "T12:00:00").toISOString();
         if (a.stato !== f.stato) imposta(a, f.stato, dataISO);
         if (f.stato > 0) a.dataVendita = dataISO; else if (art) a.creato = dataISO;
         salva([a]); chiudiFoglio(); if (pila.length) mostraFoglio();
-        toast(f.stato > 0 ? "Vendita salvata" : "Articolo in libreria");
+        toast(f.stato > 0 ? "Vendita salvata" : f.pub ? "Articolo tra i pubblicati" : "Articolo da pubblicare");
+        if (f.stato === 0) { filtroLib = f.pub ? 1 : 0; disegnaLibreria(); }
       }
     };
   });
@@ -273,10 +312,10 @@ function scegliDaLibreria(fatto) {
 function apriCerca() {
   let testo = "", filtro = 0;
   const risultati = () => ordinati().filter(a => (filtro === 0 || (filtro === 1 && !venduto(a)) || (filtro === 2 && venduto(a)))
-    && (!testo.trim() || a.nome.toLowerCase().includes(testo.trim().toLowerCase())));
+    && (!testo.trim() || (a.nome + " " + (a.note || "") + " " + (a.dove || "")).toLowerCase().includes(testo.trim().toLowerCase())));
   const lista = () => { const r = risultati(); return `<div class="lab">${r.length} risultati</div><div class="box">${r.map(a => `<button class="item" style="width:100%" data-id="${a.id}">
-      <span class="t"><b>${esc(a.nome)}</b><small>pagato ${eur(a.costo)}${venduto(a) ? " · venduto " + eur(a.prezzo) : ""}</small></span>
-      <small style="color:${STATI[a.stato].col};font-weight:700">● ${STATI[a.stato].nome}</small></button>`).join("")}</div>`; };
+      <span class="t"><b>${esc(a.nome)}</b><small>pagato ${eur(a.costo)}${venduto(a) ? " · venduto " + eur(a.prezzo) : ""}</small>${a.note ? `<span class="nota">📝 ${esc(a.note)}</span>` : ""}</span>
+      <small style="color:${venduto(a) || pubblicato(a) ? STATI[a.stato].col : "var(--p)"};font-weight:700;flex:none">● ${venduto(a) ? STATI[a.stato].nome : pubblicato(a) ? "Pubblicato" : "Da pubblicare"}</small></button>`).join("")}</div>`; };
   apriFoglio(() => `<div class="nav"><span class="tt">Cerca</span><button data-a="chiudi">Chiudi</button></div>
       <input class="srch" id="cTesto" type="search" placeholder="🔍 Cerca per nome" value="${esc(testo)}">
       <div class="seg">${["Tutti", "Libreria", "Venduti"].map((t, i) => `<button data-f="${i}" class="${filtro === i ? "on" : ""}">${t}</button>`).join("")}</div>
@@ -330,8 +369,8 @@ $("#fileRipristino").onchange = async e => {
   } catch { alert("Questo file non è un backup di Vendite."); }
 };
 
-const righeTabella = () => [["Articolo", "Stato", "Sito", "Caricato il", "Venduto il", "Pagato da te", "Venduto a", "Commissioni", "Guadagno"],
-  ...ordinati().map(a => [a.nome, STATI[a.stato].nome, venduto(a) ? a.sito : "", new Date(a.creato), a.dataVendita ? new Date(a.dataVendita) : "",
+const righeTabella = () => [["Articolo", "Stato", "Sito", "Comprato il", "Venduto il", "Pagato da te", "Venduto a", "Commissioni", "Guadagno"],
+  ...ordinati().map(a => [a.nome, venduto(a) ? STATI[a.stato].nome : pubblicato(a) ? "Pubblicato" : "Da pubblicare", venduto(a) ? a.sito : "", new Date(a.creato), a.dataVendita ? new Date(a.dataVendita) : "",
     a.costo || 0, venduto(a) ? a.prezzo || 0 : "", venduto(a) ? a.commissioni || 0 : "", venduto(a) ? guadagno(a) : ""])];
 
 $("#esportaCsv").onclick = () => {
@@ -341,11 +380,12 @@ $("#esportaCsv").onclick = () => {
 };
 $("#esportaXlsx").onclick = () => {
   const vend = righeTabella().filter((r, i) => i === 0 || r[1] !== STATI[0].nome);
-  const lib = [["Articolo", "Caricato il", "Pagato da te"], ...articoli.filter(a => !venduto(a)).map(a => [a.nome, new Date(a.creato), a.costo || 0])];
+  const lib = [["Articolo", "Stato", "Comprato da / dove", "Comprato il", "Pagato da te", "Prezzo che chiederò", "Note"],
+    ...articoli.filter(a => !venduto(a)).map(a => [a.nome, pubblicato(a) ? "Pubblicato" : "Da pubblicare", a.dove || "", new Date(a.creato), a.costo || 0, a.prezzoRichiesto ?? "", a.note || ""])];
   const somma = (rows, col) => rows.slice(1).reduce((s, r) => s + (typeof r[col] === "number" ? r[col] : 0), 0);
   vend.push(["Totale", "", "", "", "", somma(vend, 5), somma(vend, 6), somma(vend, 7), somma(vend, 8)]);
-  lib.push(["Totale", "", somma(lib, 2)]);
-  const blob = creaXlsx([{ nome: "Vendite", righe: vend, larg: [24, 12, 10, 12, 12, 13, 12, 13, 12] }, { nome: "Libreria", righe: lib, larg: [24, 12, 13] }]);
+  lib.push(["Totale", "", "", "", somma(lib, 4), somma(lib, 5), ""]);
+  const blob = creaXlsx([{ nome: "Vendite", righe: vend, larg: [24, 12, 10, 12, 12, 13, 12, 13, 12] }, { nome: "Libreria", righe: lib, larg: [24, 14, 18, 12, 13, 16, 40] }]);
   condividi(`Vendite ${oggiISO()}.xlsx`, blob);
 };
 
