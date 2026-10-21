@@ -1,6 +1,6 @@
 "use strict";
 // Vendite (web app): dati salvati in questo browser, backup in un file.
-const VERSIONE = "2.3";
+const VERSIONE = "2.4";
 const CHIAVE = "vendite-dati", OPZ = "vendite-opzioni";
 const STATI = [
   { nome: "In libreria", plur: "In libreria", col: "var(--grey)", btn: "Venduto" },
@@ -22,11 +22,38 @@ try { articoli = JSON.parse(localStorage.getItem(CHIAVE)) || []; } catch { artic
 try { Object.assign(opz, JSON.parse(localStorage.getItem(OPZ)) || {}); } catch {}
 if (navigator.storage && navigator.storage.persist) navigator.storage.persist();
 
+// Le foto stanno in IndexedDB: localStorage ha poco spazio (circa 5 MB).
+const fotoDB = new Promise(ok => {
+  try {
+    const r = indexedDB.open("vendite", 1);
+    r.onupgradeneeded = () => r.result.createObjectStore("foto");
+    r.onsuccess = () => ok(r.result);
+    r.onerror = () => ok(null);
+  } catch { ok(null); }
+});
+async function fotoScrivi(cambiati, eliminati) {
+  const db = await fotoDB; if (!db) return;
+  const t = db.transaction("foto", "readwrite"), st = t.objectStore("foto");
+  cambiati.forEach(a => a.foto && a.foto.length ? st.put(a.foto, a.id) : st.delete(a.id));
+  eliminati.forEach(id => st.delete(id));
+}
+fotoDB.then(db => {
+  if (!db) return;
+  const r = db.transaction("foto").objectStore("foto").openCursor();
+  r.onsuccess = () => {
+    const c = r.result;
+    if (c) { const a = articoli.find(x => x.id === c.key); if (a && !a.foto) a.foto = c.value; c.continue(); }
+    else disegna();
+  };
+});
+const senzaFoto = () => JSON.stringify(articoli.map(({ foto, ...resto }) => resto));
+
 /** Salva in locale; se la sincronizzazione è attiva manda online gli articoli cambiati (o eliminati). */
 function salva(cambiati = [], eliminati = []) {
   opz.cambiDopoBackup++;
   if (window.cloud) window.cloud.invia(cambiati, eliminati);
-  localStorage.setItem(CHIAVE, JSON.stringify(articoli));
+  fotoScrivi(cambiati, eliminati);
+  localStorage.setItem(CHIAVE, senzaFoto());
   salvaOpz();
   disegna();
 }
@@ -37,6 +64,23 @@ const venduto = a => a.stato > 0;
 // Gli articoli salvati prima della 2.3 non hanno "pubblicato": valgono come già pubblicati.
 const pubblicato = a => a.pubblicato !== false;
 let filtroLib = 0; // 0 da pubblicare, 1 pubblicati
+const GIORNI_FERMO = 21;
+const giorniFermo = a => Math.floor((Date.now() - new Date(a.dataPubblicazione || a.creato)) / 864e5);
+const fermi = () => articoli.filter(a => !venduto(a) && pubblicato(a)).sort((x, y) => giorniFermo(y) - giorniFermo(x));
+/** Giorni lavorativi rimasti per spedire (Vinted ne dà 5 dalla vendita). Negativo = in ritardo. */
+function giorniPerSpedire(a, oggi = new Date()) {
+  const d = new Date(a.dataVendita || a.creato); d.setHours(0, 0, 0, 0);
+  let n = 0;
+  while (n < 5) { d.setDate(d.getDate() + 1); if (d.getDay() % 6) n++; }
+  const o = new Date(oggi); o.setHours(0, 0, 0, 0);
+  let r = 0;
+  if (o <= d) { const x = new Date(o); while (x < d) { x.setDate(x.getDate() + 1); if (x.getDay() % 6) r++; } return r; }
+  const x = new Date(d); while (x < o) { x.setDate(x.getDate() + 1); if (x.getDay() % 6) r--; } return r;
+}
+const scadenzaTesto = g => g < 0 ? "⚠️ in ritardo" : g === 0 ? "⚠️ entro oggi" : g === 1 ? "⚠️ entro domani" : `${g} giorni lavorativi`;
+const miniFoto = (a, px = 34) => a.foto && a.foto[0] ? `<img class="mini-foto" src="${a.foto[0]}" style="width:${px}px;height:${px}px" alt="">` : "";
+const tracciaURL = c => "https://t.17track.net/it#nums=" + encodeURIComponent(c);
+const CONDIZIONI = ["Nuovo con cartellino", "Nuovo senza cartellino", "Ottime", "Buone", "Discrete"];
 const nuovoId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
 /** Cambia stato e segna le date dei passaggi. */
@@ -72,14 +116,23 @@ function disegnaOrdini() {
   $("#file").innerHTML = [1, 2, 3].map(s => {
     const l = ordinati().filter(a => a.stato === s);
     return `<div class="sec"><div class="sech" style="color:${STATI[s].col}">● ${STATI[s].plur} <small>(${l.length})</small></div>
-      ${l.length ? `<div class="row">${l.map(a => `<button class="cd" style="border-color:${STATI[s].col}" data-id="${a.id}">
-        <b>${esc(a.nome)}</b><small>${eur(a.prezzo)} · ${dataBreve(a.dataPagamento || a.dataSpedizione || a.dataVendita)}</small></button>`).join("")}</div>`
+      ${l.length ? `<div class="row">${l.map(a => {
+        const g = s === 1 ? giorniPerSpedire(a) : null, urg = g !== null && g <= 1;
+        return `<button class="cd" style="border-color:${urg ? "var(--red)" : STATI[s].col};${urg ? "background:#fff0ef" : ""}" data-id="${a.id}">
+        <span class="cdt">${miniFoto(a, 26)}<b>${esc(a.nome)}</b></span><small>${eur(a.prezzo)} · ${dataBreve(a.dataPagamento || a.dataSpedizione || a.dataVendita)}</small>
+        ${g !== null ? `<small style="color:${urg ? "var(--red)" : "var(--o)"};font-weight:700">${scadenzaTesto(g)}</small>` : ""}
+        ${s === 2 && a.codice ? `<small>${esc(a.codice)} · <a href="${tracciaURL(a.codice)}" target="_blank" rel="noopener" style="color:var(--b)">Traccia ›</a></small>` : ""}</button>`;
+      }).join("")}</div>`
         : `<div class="empty">Nessuno</div>`}</div>`;
   }).join("");
   const giorni = opz.ultimoBackup ? (Date.now() - new Date(opz.ultimoBackup)) / 864e5 : Infinity;
   const serve = opz.ricorda > 0 && articoli.length > 0 && opz.cambiDopoBackup > 0 && giorni >= opz.ricorda;
   $("#avvisoBackup").innerHTML = serve ? `<div class="warn">💾 <span>${opz.ultimoBackup ? `Ultimo backup ${Math.floor(giorni)} giorni fa` : "Non hai ancora fatto un backup"}</span><button id="backupOra">Salva</button></div>` : "";
   if (serve) $("#backupOra").onclick = salvaBackup;
+  const vecchi = fermi().filter(a => giorniFermo(a) > GIORNI_FERMO);
+  $("#avvisoFermi").innerHTML = vecchi.length ? `<button class="warn fermi" id="vediFermi" style="width:100%;text-align:left;border-left:4px solid var(--o)">⏰
+    <span><b>${vecchi.length === 1 ? "1 articolo fermo" : vecchi.length + " articoli fermi"} da più di ${GIORNI_FERMO} giorni</b><br><small>Prova ad abbassare il prezzo del 10%</small></span><span style="color:var(--b);font-weight:700;margin-left:auto">Vedi ›</span></button>` : "";
+  if (vecchi.length) $("#vediFermi").onclick = apriFermi;
 }
 
 function disegnaLibreria() {
@@ -92,8 +145,8 @@ function disegnaLibreria() {
   const seg = `<div class="seg">${[["Da pubblicare", daPub.length, "var(--p)"], ["Pubblicati", pub.length, "var(--ink)"]].map(([t, n, c], i) =>
     `<button data-lib="${i}" class="${filtroLib === i ? "on" : ""}" style="${filtroLib === i ? `background:${c};color:#fff` : ""}">${t} ${n}</button>`).join("")}</div>`;
   const riga = a => {
-    const info = ["pagato " + eur(a.costo), a.dove, pubblicato(a) && a.prezzoRichiesto ? "in vendita a " + eur(a.prezzoRichiesto) : "", dataBreve(a.creato)].filter(Boolean).join(" · ");
-    return `<div class="item"><button class="t" data-id="${a.id}"><b>${esc(a.nome)}</b><small>${esc(info)}</small>
+    const info = ["pagato " + eur(a.costo), a.dove, pubblicato(a) ? giorniFermo(a) + " gg in vendita" : "", pubblicato(a) && a.prezzoRichiesto ? "in vendita a " + eur(a.prezzoRichiesto) : "", dataBreve(a.creato)].filter(Boolean).join(" · ");
+    return `<div class="item">${miniFoto(a, 46)}<button class="t" data-id="${a.id}"><b>${esc(a.nome)}</b><small>${esc(info)}</small>
       ${a.note ? `<span class="nota">📝 ${esc(a.note)}</span>` : ""}</button>
       ${pubblicato(a) ? `<button class="pill" data-vendi="${a.id}">Venduto</button>` : `<button class="pill" style="background:var(--p)" data-pubblica="${a.id}">Pubblicato</button>`}</div>`;
   };
@@ -112,6 +165,7 @@ function disegnaStat() {
   $("#stat").innerHTML = `<div class="box" style="padding:12px 14px"><small>Guadagno ultimi 6 mesi</small>
       <div class="big">${eur(mesi.reduce((s, m) => s + m.v, 0))}</div>
       <div class="bars">${mesi.map((m, i) => `<div><i style="height:${Math.max(0, m.v) / max * 100}%;${i === 5 ? "background:var(--ink)" : ""}"></i>${m.d.toLocaleDateString("it-IT", { month: "short" })}</div>`).join("")}</div></div>
+    <button class="box kv" id="statFermi" style="width:100%;padding:12px 14px"><span>⏰ Articoli fermi</span><b style="color:var(--b)">${fermi().length} ›</b></button>
     <div class="lab">Dove sono gli articoli</div>
     <div class="box">${STATI.map((s, i) => `<div class="kv"><span style="color:${s.col}">● ${s.plur}</span><b>${articoli.filter(a => a.stato === i).length}</b></div>`).join("")}
       ${sped.length ? `<div class="kv"><span>Tempo medio di spedizione</span><b>${(sped.reduce((a, b) => a + b, 0) / sped.length).toLocaleString("it-IT", { maximumFractionDigits: 1 })} giorni</b></div>` : ""}</div>
@@ -119,6 +173,58 @@ function disegnaStat() {
       <div class="box"><small>Prezzo medio</small><b>${eur(vend.length ? vend.reduce((s, a) => s + a.prezzo, 0) / vend.length : 0)}</b></div></div>
     <div class="lab">Guadagno per sito</div>
     <div class="box">${Object.keys(perSito).length ? Object.keys(perSito).sort().map(s => `<div class="kv"><span>${esc(s)}</span><b>${eur(perSito[s])}</b></div>`).join("") : `<div class="kv"><span style="color:var(--sub)">Nessuna vendita</span></div>`}</div>`;
+}
+
+function apriFermi() {
+  apriFoglio(() => {
+    const l = fermi(), soldi = l.reduce((s, a) => s + (a.costo || 0), 0), chiesti = l.reduce((s, a) => s + (a.prezzoRichiesto || 0), 0);
+    const pall = g => g > GIORNI_FERMO ? "var(--red)" : g > 14 ? "var(--o)" : "var(--g)";
+    return `<div class="nav"><button data-a="chiudi">‹ Indietro</button><span class="tt">Articoli fermi</span><span style="width:60px"></span></div>
+      <div class="sum"><div><small>Soldi fermi</small><b>${eur(soldi)}</b></div><div><small>In vendita a</small><b>${eur(chiesti)}</b></div>
+        <div><small>Media giorni</small><b>${l.length ? Math.round(l.reduce((s, a) => s + giorniFermo(a), 0) / l.length) : 0}</b></div></div>
+      ${l.length ? `<div class="box">${l.map(a => `<button class="item" style="width:100%" data-id="${a.id}">${miniFoto(a, 46)}<span class="t"><b>${esc(a.nome)}</b>
+        <small>${giorniFermo(a)} giorni${a.prezzoRichiesto ? " · " + eur(a.prezzoRichiesto) + (giorniFermo(a) > GIORNI_FERMO ? " → prova " + eur(Math.floor(a.prezzoRichiesto * 0.9)) : "") : ""}</small></span>
+        <span style="width:11px;height:11px;border-radius:50%;background:${pall(giorniFermo(a))};flex:none"></span></button>`).join("")}</div>`
+        : `<div class="empty">Nessun articolo pubblicato in attesa di vendita.</div>`}
+      <div class="note">🔴 oltre ${GIORNI_FERMO} giorni · 🟠 oltre 14 · 🟢 recenti. “Soldi fermi” è quanto hai pagato per gli articoli pubblicati e non ancora venduti.</div>`;
+  }, s => s.onclick = e => {
+    const r = e.target.closest("[data-id]");
+    if (r) return apriDettaglio(r.dataset.id);
+    if (e.target.closest("[data-a]")) chiudiFoglio();
+  });
+}
+
+/** Titolo e descrizione da copiare nell'annuncio di Vinted. */
+function testoAnnuncio(a) {
+  const titolo = [a.nome, a.marca && !a.nome.toLowerCase().includes(a.marca.toLowerCase()) ? a.marca : "", a.taglia ? "taglia " + a.taglia : ""].filter(Boolean).join(" ");
+  const righe = [
+    [a.nome, a.marca ? `marca ${a.marca}` : "", a.taglia ? `taglia ${a.taglia}` : ""].filter(Boolean).join(", ") + ".",
+    a.condizioni ? `Condizioni: ${a.condizioni.toLowerCase()}.` : "",
+    a.note ? (a.note.trim()[0].toUpperCase() + a.note.trim().slice(1)).replace(/([^.!?])$/, "$1.") : "",
+    "Spedisco entro 1-2 giorni, imballato con cura.",
+    "Accetto offerte ragionevoli.",
+  ].filter(Boolean);
+  return { titolo, descrizione: righe.join("\n") };
+}
+async function copia(testo) {
+  try { await navigator.clipboard.writeText(testo); toast("Copiato"); }
+  catch { prompt("Copia questo testo:", testo); }
+}
+function apriTesto(id) {
+  const a = articoli.find(x => x.id === id), t = testoAnnuncio(a);
+  apriFoglio(() => `<div class="nav"><button data-a="chiudi">‹ Indietro</button><span class="tt">Testo per Vinted</span><span style="width:60px"></span></div>
+    <div class="lab">Titolo</div><div class="box" style="padding:12px 14px"><b>${esc(t.titolo)}</b><button class="copia" data-c="t">Copia</button></div>
+    <div class="lab">Descrizione</div><div class="box" style="padding:12px 14px;white-space:pre-wrap;line-height:1.45">${esc(t.descrizione)}<button class="copia" data-c="d">Copia</button></div>
+    ${a.prezzoRichiesto ? `<div class="box"><div class="kv"><span>Prezzo che chiederò</span><b>${eur(a.prezzoRichiesto)}</b></div></div>` : ""}
+    <div class="note">Puoi cambiare il testo modificando l'articolo (nome, marca, taglia, condizioni, note).</div>
+    <button class="btn" style="background:#09807a" data-a="vinted">Copia tutto e apri Vinted</button>`,
+    s => s.onclick = e => {
+      const c = e.target.closest("[data-c]");
+      if (c) return copia(c.dataset.c === "t" ? t.titolo : t.descrizione);
+      const b = e.target.closest("[data-a]"); if (!b) return;
+      if (b.dataset.a === "chiudi") chiudiFoglio();
+      if (b.dataset.a === "vinted") { copia(t.titolo + "\n\n" + t.descrizione); setTimeout(() => location.href = "https://www.vinted.it/items/new", 600); }
+    });
 }
 
 function disegnaAltro() {
@@ -140,12 +246,14 @@ $("#optRicorda").onchange = e => { opz.ricorda = +e.target.value; salvaOpz(); di
 
 // Tocchi su schede e pulsanti nelle liste
 document.addEventListener("click", e => {
+  if (e.target.closest("#statFermi")) return apriFermi();
+  if (e.target.closest("a[href]")) return;
   const fl = e.target.closest("[data-lib]");
   if (fl) { filtroLib = +fl.dataset.lib; return disegnaLibreria(); }
   const pb = e.target.closest("[data-pubblica]");
   if (pb) {
     const a = articoli.find(x => x.id === pb.dataset.pubblica);
-    a.pubblicato = true; salva([a]); toast("Spostato tra i pubblicati");
+    a.pubblicato = true; a.dataPubblicazione = new Date().toISOString(); salva([a]); toast("Spostato tra i pubblicati");
     return;
   }
   const v = e.target.closest("[data-vendi]");
@@ -180,10 +288,14 @@ function apriDettaglio(id) {
     const st = a.stato === 0 && !pubblicato(a) ? { ...STATI[0], nome: "Da pubblicare", col: "var(--p)" } : a.stato === 0 ? { ...STATI[0], nome: "Pubblicato" } : STATI[a.stato];
     const tappa = (ok, t, d, nota) => `<div class="step"><span class="dot" style="background:${ok ? "var(--g)" : "#d0d4dc"}">${ok ? "✓" : ""}</span><div><b>${t}</b><br><small>${d ? new Date(d).toLocaleString("it-IT", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : ""}${nota ? " · " + esc(nota) : ""}</small></div></div>`;
     return `<div class="nav"><button data-a="chiudi">‹ Indietro</button><button data-a="modifica">Modifica</button></div>
+      ${a.foto && a.foto.length ? `<div class="foto-riga">${a.foto.map(f => `<img src="${f}" alt="">`).join("")}</div>` : ""}
       <h1 style="margin:6px 0 8px">${esc(a.nome)}</h1>
       <span class="tag" style="color:${st.col};background:color-mix(in srgb, ${st.col} 15%, transparent)">● ${st.nome}</span>
       <div class="box" style="margin-top:12px">
         <div class="kv"><span>Pagato da te</span><b>${eur(a.costo)}</b></div>
+        ${a.marca ? `<div class="kv"><span>Marca</span><b>${esc(a.marca)}</b></div>` : ""}
+        ${a.taglia ? `<div class="kv"><span>Taglia</span><b>${esc(a.taglia)}</b></div>` : ""}
+        ${a.condizioni ? `<div class="kv"><span>Condizioni</span><b>${esc(a.condizioni)}</b></div>` : ""}
         ${a.dove ? `<div class="kv"><span>Comprato da / dove</span><b>${esc(a.dove)}</b></div>` : ""}
         ${!venduto(a) && a.prezzoRichiesto ? `<div class="kv"><span>Prezzo che chiederò</span><b>${eur(a.prezzoRichiesto)}</b></div>` : ""}
         ${venduto(a) ? `<div class="kv"><span>Venduto a</span><b>${eur(a.prezzo)}</b></div>
@@ -192,8 +304,10 @@ function apriDettaglio(id) {
         <div class="kv"><span>Guadagno</span><b style="color:${guadagno(a) >= 0 ? "var(--g)" : "var(--red)"}">${eur(guadagno(a))}</b></div>` : ""}
       </div>
       ${a.note ? `<div class="lab">Note</div><div class="box" style="padding:12px 14px;white-space:pre-wrap">${esc(a.note)}</div>` : ""}
-      <div class="box">${tappa(true, "Comprato", a.creato)}${venduto(a) ? "" : tappa(pubblicato(a), "Pubblicato", null)}${tappa(venduto(a), "Venduto", a.dataVendita)}${tappa(!!a.dataSpedizione, "Spedito", a.dataSpedizione, a.codice)}${tappa(a.stato === 3, "Pagato", a.dataPagamento)}</div>
+      <div class="box">${tappa(true, "Comprato", a.creato)}${venduto(a) ? "" : tappa(pubblicato(a), "Pubblicato", null)}${tappa(venduto(a), "Venduto", a.dataVendita)}${tappa(!!a.dataSpedizione, "Spedito", a.dataSpedizione, a.codice)}${a.codice ? `<a class="kv" style="color:var(--b);text-decoration:none" href="${tracciaURL(a.codice)}" target="_blank" rel="noopener">Traccia il pacco ›</a>` : ""}${tappa(a.stato === 3, "Pagato", a.dataPagamento)}</div>
       ${a.stato === 0 && !pubblicato(a) ? `<button class="btn" data-a="pubblica" style="background:var(--p)">Segna come pubblicato</button>` : st.btn ? `<button class="btn" data-a="avanza" style="background:${STATI[Math.min(3, a.stato + 1)].col}">${st.btn}</button>` : ""}
+      ${a.stato === 1 ? `<div class="note" style="margin-top:8px;text-align:center;color:${giorniPerSpedire(a) <= 1 ? "var(--red)" : "var(--sub)"}">Spedizione: ${scadenzaTesto(giorniPerSpedire(a))}</div>` : ""}
+      ${venduto(a) ? "" : `<button class="btn" data-a="testo" style="background:#09807a;margin-top:10px">📝 Testo per Vinted</button>`}
       <button class="del" data-a="elimina">Elimina</button>`;
   };
   apriFoglio(html, s => s.onclick = e => {
@@ -201,7 +315,8 @@ function apriDettaglio(id) {
     const a = articoli.find(x => x.id === id);
     if (b.dataset.a === "chiudi") chiudiFoglio();
     if (b.dataset.a === "modifica") apriForm(a, {});
-    if (b.dataset.a === "pubblica") { a.pubblicato = true; salva([a]); mostraFoglio(); }
+    if (b.dataset.a === "pubblica") { a.pubblicato = true; a.dataPubblicazione = new Date().toISOString(); salva([a]); mostraFoglio(); }
+    if (b.dataset.a === "testo") apriTesto(a.id);
     if (b.dataset.a === "avanza") { if (a.stato === 0) apriForm(a, { vendi: true }); else { imposta(a, a.stato + 1); salva([a]); mostraFoglio(); } }
     if (b.dataset.a === "elimina" && confirm(`Eliminare "${a.nome}"?`)) { articoli = articoli.filter(x => x !== a); salva([], [a.id]); chiudiFoglio(); }
   });
@@ -212,7 +327,7 @@ function apriForm(art, { stato = 1, vendi = false }) {
   const nuovo = !art;
   const f = {
     nome: art?.nome || "", costo: art?.costo, prezzo: vendi ? art.prezzoRichiesto : art?.prezzo,
-    dove: art?.dove || "", note: art?.note || "", richiesto: art?.prezzoRichiesto, pub: art ? pubblicato(art) : filtroLib === 1,
+    dove: art?.dove || "", note: art?.note || "", marca: art?.marca || "", taglia: art?.taglia || "", cond: art?.condizioni || "", foto: [...(art?.foto || [])], richiesto: art?.prezzoRichiesto, pub: art ? pubblicato(art) : filtroLib === 1,
     comm: vendi ? undefined : art?.commissioni, sito: (!vendi && art?.sito) || siti()[0] || "Vinted",
     stato: vendi ? 1 : art ? art.stato : stato, codice: art?.codice || "",
     data: (!vendi && art ? (art.stato ? art.dataVendita : art.creato) : null)?.slice(0, 10) || oggiISO(), scelto: null,
@@ -225,9 +340,14 @@ function apriForm(art, { stato = 1, vendi = false }) {
     const vend = f.stato > 0, sl = siti().includes(f.sito) ? siti() : [...siti(), f.sito];
     return `<div class="nav"><button data-a="annulla">Annulla</button><span class="tt">${esc(titolo)}</span><button class="ok" data-a="salva" id="ok">Salva</button></div>
       ${nuovo && !soloLibreria && libreria().length ? `<div class="box"><div class="kv"><button style="color:var(--b);width:100%;text-align:left" data-a="libreria">📚 ${f.scelto ? "Dalla libreria: " + esc(f.scelto.nome) : "Scegli dalla libreria ›"}</button></div></div>` : ""}
+      ${f.stato === 0 || !nuovo ? `<div class="foto-riga">${f.foto.map((x, i) => `<span class="fwrap"><img src="${x}" alt=""><button data-togli="${i}">✕</button></span>`).join("")}
+        ${f.foto.length < 4 ? `<label class="fadd">📷<br>Aggiungi<input type="file" id="fFoto" accept="image/*" multiple hidden></label>` : ""}</div>` : ""}
       <div class="box">
         <div class="kv"><span>Articolo</span><input id="fNome" value="${esc(f.nome)}" placeholder="Nome" autocomplete="off"></div>
         <div class="kv"><span>Pagato da te</span><input id="fCosto" inputmode="decimal" value="${n(f.costo)}" placeholder="0,00 €"></div>
+        ${f.stato === 0 || !nuovo ? `<div class="kv"><span>Marca</span><input id="fMarca" value="${esc(f.marca)}" placeholder="facoltativo"></div>
+        <div class="kv"><span>Taglia</span><input id="fTaglia" value="${esc(f.taglia)}" placeholder="facoltativo"></div>
+        <div class="kv"><span>Condizioni</span><select id="fCond"><option value="">—</option>${CONDIZIONI.map(c => `<option ${c === f.cond ? "selected" : ""}>${c}</option>`).join("")}</select></div>` : ""}
         <div class="kv"><span>Comprato da / dove</span><input id="fDove" value="${esc(f.dove)}" placeholder="facoltativo"></div>
         ${vend ? "" : `<div class="kv"><span>Prezzo che chiederò</span><input id="fRichiesto" inputmode="decimal" value="${n(f.richiesto)}" placeholder="0,00 €"></div>`}
         ${vend ? `<div class="kv"><span>${vendi ? "Venduto a" : "Prezzo di vendita"}</span><input id="fPrezzo" inputmode="decimal" value="${n(f.prezzo)}" placeholder="0,00 €"></div>
@@ -253,6 +373,9 @@ function apriForm(art, { stato = 1, vendi = false }) {
     if ($("#fData")) f.data = v("fData") || oggiISO();
     if ($("#fCodice")) f.codice = v("fCodice");
     if ($("#fDove")) f.dove = v("fDove").trim();
+    if ($("#fMarca")) f.marca = v("fMarca").trim();
+    if ($("#fTaglia")) f.taglia = v("fTaglia").trim();
+    if ($("#fCond")) f.cond = v("fCond");
     if ($("#fNote")) f.note = v("fNote").trim();
     if ($("#fRichiesto")) f.richiesto = v("fRichiesto") === "" ? undefined : num(v("fRichiesto"));
   };
@@ -265,6 +388,12 @@ function apriForm(art, { stato = 1, vendi = false }) {
   };
   apriFoglio(html, s => {
     aggiorna();
+    s.onchange = async e => {
+      if (e.target.id !== "fFoto") return;
+      leggi();
+      for (const file of [...e.target.files].slice(0, 4 - f.foto.length)) f.foto.push(await riduciFoto(file));
+      mostraFoglio();
+    };
     s.oninput = e => {
       if (e.target.id === "fPrezzo" && opz.comm > 0 && (nuovo || vendi)) {
         $("#fComm").value = n(Math.round(num(e.target.value) * opz.comm) / 100);
@@ -274,17 +403,20 @@ function apriForm(art, { stato = 1, vendi = false }) {
     s.onclick = e => {
       const st = e.target.closest("[data-st]");
       if (st) { leggi(); f.stato = +st.dataset.st; mostraFoglio(); return; }
+      const tg = e.target.closest("[data-togli]");
+      if (tg) { leggi(); f.foto.splice(+tg.dataset.togli, 1); mostraFoglio(); return; }
       const pb = e.target.closest("[data-pub]");
       if (pb) { leggi(); f.pub = pb.dataset.pub === "1"; mostraFoglio(); return; }
       const b = e.target.closest("[data-a]"); if (!b) return;
       if (b.dataset.a === "annulla") chiudiFoglio();
-      if (b.dataset.a === "libreria") { leggi(); scegliDaLibreria(a => { f.scelto = a; f.nome = a.nome; f.costo = a.costo; f.dove = a.dove || ""; f.note = a.note || ""; if (f.prezzo == null) f.prezzo = a.prezzoRichiesto; }); }
+      if (b.dataset.a === "libreria") { leggi(); scegliDaLibreria(a => { f.scelto = a; f.nome = a.nome; f.costo = a.costo; f.dove = a.dove || ""; f.note = a.note || ""; f.marca = a.marca || ""; f.taglia = a.taglia || ""; f.cond = a.condizioni || ""; f.foto = [...(a.foto || [])]; if (f.prezzo == null) f.prezzo = a.prezzoRichiesto; }); }
       if (b.dataset.a === "salva") {
         leggi();
         const a = art || f.scelto || { id: nuovoId(), creato: new Date(f.data + "T12:00:00").toISOString(), stato: 0 };
         if (!art && !f.scelto) articoli.push(a);
         a.nome = f.nome.trim(); a.costo = f.costo || 0; a.codice = f.codice;
-        a.dove = f.dove; a.note = f.note;
+        a.dove = f.dove; a.note = f.note; a.marca = f.marca; a.taglia = f.taglia; a.condizioni = f.cond; a.foto = f.foto;
+        if (f.stato === 0 && f.pub && !a.dataPubblicazione) a.dataPubblicazione = new Date().toISOString();
         if (f.richiesto != null) a.prezzoRichiesto = f.richiesto; else if (f.stato === 0) delete a.prezzoRichiesto;
         if (f.stato === 0) a.pubblicato = f.pub; else a.pubblicato = true;
         if (f.stato > 0) { a.prezzo = f.prezzo || 0; a.commissioni = f.comm || 0; a.sito = f.sito; }
@@ -296,6 +428,23 @@ function apriForm(art, { stato = 1, vendi = false }) {
         if (f.stato === 0) { filtroLib = f.pub ? 1 : 0; disegnaLibreria(); }
       }
     };
+  });
+}
+
+/** Foto rimpicciolita (lato lungo 640 px, JPEG): pesa circa 50 KB. */
+function riduciFoto(file) {
+  return new Promise((ok, ko) => {
+    const img = new Image(), url = URL.createObjectURL(file);
+    img.onload = () => {
+      const k = Math.min(1, 640 / Math.max(img.width, img.height));
+      const c = document.createElement("canvas");
+      c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      ok(c.toDataURL("image/jpeg", 0.7));
+    };
+    img.onerror = ko;
+    img.src = url;
   });
 }
 
@@ -443,7 +592,7 @@ function toast(t) { const el = $("#toast"); el.textContent = t; el.classList.add
 /** Usato dalla sincronizzazione quando arrivano dati da un altro dispositivo. */
 window.vendite = {
   get articoli() { return articoli; },
-  sostituisci(lista) { articoli = lista; localStorage.setItem(CHIAVE, JSON.stringify(articoli)); disegna(); if (pila.length && !$("#fNome") && !$("#cTesto")) mostraFoglio(); },
+  sostituisci(lista) { articoli = lista; fotoScrivi(lista, []); localStorage.setItem(CHIAVE, senzaFoto()); disegna(); if (pila.length && !$("#fNome") && !$("#cTesto")) mostraFoglio(); },
   toast,
 };
 

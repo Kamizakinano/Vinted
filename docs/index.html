@@ -68,6 +68,13 @@ h1{font-size:32px;font-weight:800;margin:0}
 .toast.on{opacity:1}
 .nota{display:inline-block;margin-top:4px;background:#fff4c2;color:#6b5000;border-radius:6px;padding:2px 6px;font-size:12px;white-space:normal;text-align:left}
 textarea{width:100%;border:0;outline:none;resize:vertical;font:inherit;color:var(--ink);padding:12px 0;background:none;min-height:70px}
+.cd small{display:block}.cdt{display:flex;align-items:center;gap:6px;min-width:0}.cdt b{min-width:0}
+.mini-foto{border-radius:8px;object-fit:cover;flex:none;background:#e1e4ea}
+.foto-riga{display:flex;gap:8px;overflow-x:auto;margin:4px 0 12px}.foto-riga img{width:84px;height:84px;border-radius:12px;object-fit:cover;flex:none}
+.fwrap{position:relative;flex:none}.fwrap button{position:absolute;top:4px;right:4px;width:22px;height:22px;border-radius:50%;background:#0008;color:#fff;font-size:12px}
+.fadd{width:84px;height:84px;border-radius:12px;border:2px dashed #c9cfdb;display:grid;place-items:center;text-align:center;color:var(--sub);font-size:12px;flex:none}
+.copia{display:block;margin:6px 0 0 auto;color:var(--b);font-weight:600;font-size:14px}
+.warn.fermi{background:var(--card)}
 .del{color:var(--red);display:block;margin:14px auto;font-size:16px}
 .note{font-size:12px;color:var(--sub);margin:-4px 6px 12px}
 .big{font-size:28px;font-weight:800}
@@ -80,6 +87,7 @@ textarea{width:100%;border:0;outline:none;resize:vertical;font:inherit;color:var
 <section class="page on" id="p-ordini">
   <div class="top"><h1>Ordini</h1><button class="round" id="apriCerca" aria-label="Cerca">🔍</button></div>
   <div id="avvisoBackup"></div>
+  <div id="avvisoFermi"></div>
   <div class="sum" id="sumOrdini"></div>
   <div id="file"></div>
   <button class="btn" id="nuovaVendita">+ Nuova vendita</button>
