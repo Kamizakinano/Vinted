@@ -1,6 +1,6 @@
 "use strict";
 // Vendite (web app): dati salvati in questo browser, backup in un file.
-const VERSIONE = "2.5";
+const VERSIONE = "2.6";
 const CHIAVE = "vendite-dati", OPZ = "vendite-opzioni";
 const STATI = [
   { nome: "In libreria", plur: "In libreria", col: "var(--grey)", btn: "Venduto" },
@@ -522,6 +522,23 @@ $("#fileRipristino").onchange = async e => {
     opz.ultimoBackup = d.salvato; salva(articoli, vecchi); opz.cambiDopoBackup = 0; salvaOpz(); disegna();
     toast("Backup ripristinato");
   } catch { alert("Questo file non è un backup di Vendite."); }
+};
+
+// Aggiunge articoli da un file (senza cancellare quelli che ci sono già).
+$("#fileAggiungi").onchange = async e => {
+  const file = e.target.files[0]; e.target.value = "";
+  if (!file) return;
+  try {
+    const d = JSON.parse(await file.text());
+    const nuovi = (Array.isArray(d) ? d : d.articoli || []).filter(a => a && a.nome && !articoli.some(x => x.id === a.id));
+    if (!nuovi.length) return alert("Nessun articolo nuovo in questo file.");
+    if (!confirm(`Aggiungere ${nuovi.length} articoli?\n\n${nuovi.slice(0, 8).map(a => "• " + a.nome).join("\n")}${nuovi.length > 8 ? "\n…" : ""}`)) return;
+    const ora = new Date().toISOString();
+    nuovi.forEach(a => { a.id = a.id || nuovoId(); a.creato = a.creato || ora; a.stato = a.stato || 0; if (a.pubblicato === undefined) a.pubblicato = false; articoli.push(a); });
+    salva(nuovi);
+    filtroLib = 0;
+    toast(`${nuovi.length} articoli aggiunti`);
+  } catch { alert("Questo file non contiene articoli di Vendite."); }
 };
 
 const righeTabella = () => [["Articolo", "Stato", "Sito", "Comprato il", "Venduto il", "Pagato da te", "Venduto a", "Commissioni", "Guadagno"],
