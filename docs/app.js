@@ -1,6 +1,6 @@
 "use strict";
 // Vendite (web app): dati salvati in questo browser, backup in un file.
-const VERSIONE = "2.7";
+const VERSIONE = "2.8";
 const CHIAVE = "vendite-dati", OPZ = "vendite-opzioni";
 const STATI = [
   { nome: "In libreria", plur: "In libreria", col: "var(--grey)", btn: "Venduto" },
@@ -109,7 +109,64 @@ document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => {
   scrollTo(0, 0);
 });
 
-function disegna() { disegnaOrdini(); disegnaLibreria(); disegnaStat(); disegnaAltro(); }
+function disegna() { disegnaOrdini(); disegnaLibreria(); disegnaConti(); disegnaStat(); disegnaAltro(); }
+
+// ---------- Conti ----------
+let periodoConti = 1; // 0 mese, 1 anno, 2 sempre
+function nelPeriodo(iso, p, oggi = new Date()) {
+  if (!iso) return false;
+  if (p === 2) return true;
+  const d = new Date(iso);
+  return d.getFullYear() === oggi.getFullYear() && (p === 1 || d.getMonth() === oggi.getMonth());
+}
+/** Totali di un periodo: vendite contate alla data di vendita, spese alla data d'acquisto. */
+function conti(p, oggi = new Date()) {
+  const vendute = articoli.filter(a => venduto(a) && nelPeriodo(a.dataVendita, p, oggi));
+  const comprati = articoli.filter(a => nelPeriodo(a.creato, p, oggi));
+  const somma = (l, f) => l.reduce((s, a) => s + f(a), 0);
+  const costo = a => a.costo || 0;
+  return {
+    vendite: vendute.length, comprati: comprati.length,
+    incassato: somma(vendute, incasso), guadagno: somma(vendute, guadagno), speso: somma(comprati, costo),
+    spesoVenduti: somma(comprati.filter(venduto), costo),
+    spesoDaPub: somma(comprati.filter(a => !venduto(a) && !pubblicato(a)), costo),
+    spesoPub: somma(comprati.filter(a => !venduto(a) && pubblicato(a)), costo),
+    sulConto: somma(vendute.filter(a => a.stato === 3 && a.trasferito), incasso),
+    daTrasf: somma(vendute.filter(a => a.stato === 3 && !a.trasferito), incasso),
+    inAttesa: somma(vendute.filter(a => a.stato === 1 || a.stato === 2), incasso),
+    commissioni: somma(vendute, a => a.commissioni || 0),
+  };
+}
+function disegnaConti() {
+  const c = conti(periodoConti), saldo = c.incassato - c.speso;
+  const kv = (t, v, col = "") => `<div class="kv"><span>${t}</span><b style="${col ? "color:" + col : ""}">${v}</b></div>`;
+  const mesi = [];
+  const oggi = new Date();
+  for (let k = 0; k < 12; k++) {
+    const d = new Date(oggi.getFullYear(), oggi.getMonth() - k, 15), m = conti(0, d);
+    if (m.vendite || m.comprati) mesi.push({ d, m });
+  }
+  $("#conti").innerHTML = `<div class="seg">${["Mese", "Anno", "Sempre"].map((t, i) => `<button data-per="${i}" class="${periodoConti === i ? "on" : ""}" style="${periodoConti === i ? "background:var(--ink);color:#fff" : ""}">${t}</button>`).join("")}</div>
+    <div class="tot"><div class="box"><small>Incassato</small><b style="color:var(--b)">${eur(c.incassato)}</b><small>${c.vendite} vendite</small></div>
+      <div class="box"><small>Speso</small><b style="color:var(--red)">${eur(c.speso)}</b><small>${c.comprati} articoli</small></div></div>
+    <div class="box totg"><small>Guadagno sulle vendite</small><b style="color:${c.guadagno >= 0 ? "var(--g)" : "var(--red)"}">${eur(c.guadagno)}</b><small>incassato meno quanto avevi pagato gli articoli venduti</small></div>
+    <div class="lab">Speso, diviso</div>
+    <div class="box">${kv("Articoli già venduti", eur(c.spesoVenduti))}${kv("Articoli ancora in libreria", eur(c.spesoDaPub + c.spesoPub))}
+      ${kv("· da pubblicare", eur(c.spesoDaPub), "var(--sub)")}${kv("· pubblicati", eur(c.spesoPub), "var(--sub)")}</div>
+    <div class="lab">Incassato, diviso</div>
+    <div class="box">${kv("Già sul conto", eur(c.sulConto), "var(--g)")}${kv("Da trasferire", eur(c.daTrasf), "var(--o)")}
+      ${c.inAttesa ? kv("Non ancora pagato", eur(c.inAttesa), "var(--b)") : ""}${kv("Commissioni pagate", eur(c.commissioni), "var(--sub)")}</div>
+    <div class="lab">Bilancio</div>
+    <div class="box">${kv("Incassato", "+ " + eur(c.incassato), "var(--b)")}${kv("Speso in totale", "− " + eur(c.speso), "var(--red)")}
+      ${kv("Saldo", (saldo >= 0 ? "+ " : "− ") + eur(Math.abs(saldo)), saldo >= 0 ? "var(--g)" : "var(--red)")}</div>
+    <div class="note">Il saldo conta anche quello che hai comprato e non hai ancora venduto: quando lo vendi, sale.</div>
+    <div class="lab">Mese per mese</div>
+    <div class="box"><div class="tab4" style="color:var(--sub);font-size:12px"><span>Mese</span><span>Incassato</span><span>Speso</span><span>Guadagno</span></div>
+      ${mesi.length ? mesi.map(({ d, m }) => `<div class="tab4"><span>${d.toLocaleDateString("it-IT", { month: "long" }).replace(/^./, x => x.toUpperCase())}${d.getFullYear() !== oggi.getFullYear() ? " " + d.getFullYear() : ""}</span>
+        <span>${m.incassato.toFixed(2).replace(".", ",")}</span><span>${m.speso.toFixed(2).replace(".", ",")}</span>
+        <b style="text-align:right;color:${m.guadagno >= 0 ? "var(--g)" : "var(--red)"}">${m.guadagno.toFixed(2).replace(".", ",")}</b></div>`).join("")
+        : `<div class="tab4"><span style="color:var(--sub)">Ancora nessun dato</span></div>`}</div>`;
+}
 
 function disegnaOrdini() {
   const mese = new Date().toLocaleDateString("it-IT", { month: "long" });
@@ -290,6 +347,8 @@ $("#optRicorda").onchange = e => { opz.ricorda = +e.target.value; salvaOpz(); di
 document.addEventListener("click", e => {
   if (e.target.closest("#statFermi")) return apriFermi();
   if (e.target.closest("a[href]")) return;
+  const pr = e.target.closest("[data-per]");
+  if (pr) { periodoConti = +pr.dataset.per; return disegnaConti(); }
   const fl = e.target.closest("[data-lib]");
   if (fl) { filtroLib = +fl.dataset.lib; return disegnaLibreria(); }
   const pb = e.target.closest("[data-pubblica]");
