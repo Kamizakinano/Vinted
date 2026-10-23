@@ -1,6 +1,6 @@
 "use strict";
 // Vendite (web app): dati salvati in questo browser, backup in un file.
-const VERSIONE = "2.8";
+const VERSIONE = "2.9";
 const CHIAVE = "vendite-dati", OPZ = "vendite-opzioni";
 const STATI = [
   { nome: "In libreria", plur: "In libreria", col: "var(--grey)", btn: "Venduto" },
@@ -354,6 +354,7 @@ document.addEventListener("click", e => {
   const pb = e.target.closest("[data-pubblica]");
   if (pb) {
     const a = articoli.find(x => x.id === pb.dataset.pubblica);
+    if (!confirm(`Hai pubblicato "${a.nome}" su Vinted?\n\nPassa tra i Pubblicati.`)) return;
     a.pubblicato = true; a.dataPubblicazione = new Date().toISOString(); salva([a]); toast("Spostato tra i pubblicati");
     return;
   }
@@ -408,6 +409,7 @@ function apriDettaglio(id) {
       <div class="box">${tappa(true, "Comprato", a.creato)}${venduto(a) ? "" : tappa(pubblicato(a), "Pubblicato", null)}${tappa(venduto(a), "Venduto", a.dataVendita)}${tappa(!!a.dataSpedizione, "Spedito", a.dataSpedizione, a.codice)}${a.codice ? `<a class="kv" style="color:var(--b);text-decoration:none" href="${tracciaURL(a.codice)}" target="_blank" rel="noopener">Traccia il pacco ›</a>` : ""}${tappa(a.stato === 3, "Pagato", a.dataPagamento)}</div>
       ${a.stato === 0 && !pubblicato(a) ? `<button class="btn" data-a="pubblica" style="background:var(--p)">Segna come pubblicato</button>` : st.btn ? `<button class="btn" data-a="avanza" style="background:${STATI[Math.min(3, a.stato + 1)].col}">${st.btn}</button>` : ""}
       ${a.stato === 1 ? `<div class="note" style="margin-top:8px;text-align:center;color:${giorniPerSpedire(a) <= 1 ? "var(--red)" : "var(--sub)"}">Spedizione: ${scadenzaTesto(giorniPerSpedire(a))}</div>` : ""}
+      ${a.stato === 0 && pubblicato(a) ? `<button class="del" data-a="spubblica" style="color:var(--p)">↩︎ Non l'ho pubblicato: rimetti tra i Da pubblicare</button>` : ""}
       ${venduto(a) ? "" : `<button class="btn" data-a="testo" style="background:#09807a;margin-top:10px">📝 Testo per Vinted</button>`}
       <button class="del" data-a="elimina">Elimina</button>`;
   };
@@ -416,7 +418,8 @@ function apriDettaglio(id) {
     const a = articoli.find(x => x.id === id);
     if (b.dataset.a === "chiudi") chiudiFoglio();
     if (b.dataset.a === "modifica") apriForm(a, {});
-    if (b.dataset.a === "pubblica") { a.pubblicato = true; a.dataPubblicazione = new Date().toISOString(); salva([a]); mostraFoglio(); }
+    if (b.dataset.a === "spubblica" && confirm(`Rimettere "${a.nome}" tra i Da pubblicare?`)) { a.pubblicato = false; a.dataPubblicazione = null; salva([a]); mostraFoglio(); toast("Rimesso tra i Da pubblicare"); }
+    if (b.dataset.a === "pubblica" && confirm(`Hai pubblicato "${a.nome}" su Vinted?`)) { a.pubblicato = true; a.dataPubblicazione = new Date().toISOString(); salva([a]); mostraFoglio(); }
     if (b.dataset.a === "testo") apriTesto(a.id);
     if (b.dataset.a === "avanza") { if (a.stato === 0) apriForm(a, { vendi: true }); else { imposta(a, a.stato + 1); salva([a]); mostraFoglio(); } }
     if (b.dataset.a === "elimina" && confirm(`Eliminare "${a.nome}"?`)) { articoli = articoli.filter(x => x !== a); salva([], [a.id]); chiudiFoglio(); }
