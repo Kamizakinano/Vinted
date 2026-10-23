@@ -1,6 +1,6 @@
 "use strict";
 // Vendite (web app): dati salvati in questo browser, backup in un file.
-const VERSIONE = "2.6";
+const VERSIONE = "2.7";
 const CHIAVE = "vendite-dati", OPZ = "vendite-opzioni";
 const STATI = [
   { nome: "In libreria", plur: "In libreria", col: "var(--grey)", btn: "Venduto" },
@@ -64,6 +64,9 @@ const venduto = a => a.stato > 0;
 // Gli articoli salvati prima della 2.3 non hanno "pubblicato": valgono come già pubblicati.
 const pubblicato = a => a.pubblicato !== false;
 let filtroLib = 0; // 0 da pubblicare, 1 pubblicati
+const incasso = a => (a.prezzo || 0) - (a.commissioni || 0);
+const daTrasferire = () => articoli.filter(a => a.stato === 3 && !a.trasferito).sort((x, y) => (y.dataPagamento || "").localeCompare(x.dataPagamento || ""));
+const trasferiti = () => articoli.filter(a => a.stato === 3 && a.trasferito).sort((x, y) => (y.dataTrasferimento || "").localeCompare(x.dataTrasferimento || ""));
 const GIORNI_FERMO = 21;
 const giorniFermo = a => Math.floor((Date.now() - new Date(a.dataPubblicazione || a.creato)) / 864e5);
 const fermi = () => articoli.filter(a => !venduto(a) && pubblicato(a)).sort((x, y) => giorniFermo(y) - giorniFermo(x));
@@ -91,7 +94,7 @@ function imposta(a, stato, data) {
   if (!a.dataVendita) a.dataVendita = data || ora;
   if (stato >= 2 && !a.dataSpedizione) a.dataSpedizione = ora;
   if (stato === 3 && !a.dataPagamento) a.dataPagamento = ora;
-  if (stato < 3) a.dataPagamento = null;
+  if (stato < 3) { a.dataPagamento = null; a.trasferito = false; a.dataTrasferimento = null; }
   if (stato < 2) a.dataSpedizione = null;
 }
 const stessoMese = (iso, d) => { const x = new Date(iso); return x.getFullYear() === d.getFullYear() && x.getMonth() === d.getMonth(); };
@@ -135,6 +138,9 @@ function disegnaOrdini() {
     <small style="color:var(--ink)">${daHome
       ? "Su iPhone l'app aperta dall'icona ha un archivio separato da Safari. Per portarli qui: apri il sito in Safari → Altro → <b>Salva backup</b>; poi qui → Altro → <b>Ripristina da un backup</b>. Oppure accedi in Altro → Sincronizzazione: i dati arrivano da soli."
       : "Consiglio: aggiungi l'app alla schermata Home (Condividi → Aggiungi alla schermata Home) e usala sempre da lì, perché Safari e l'icona hanno archivi separati."}</small></div>` : "";
+  const dt = daTrasferire();
+  $("#avvisoSoldi").innerHTML = dt.length ? `<button class="box kv" id="apriSoldi" style="width:100%;padding:12px 14px"><span>💶 <b>Da trasferire sul conto</b></span><b style="color:var(--o)">${eur(dt.reduce((s, a) => s + incasso(a), 0))} ›</b></button>` : "";
+  if (dt.length) $("#apriSoldi").onclick = apriSoldi;
   const vecchi = fermi().filter(a => giorniFermo(a) > GIORNI_FERMO);
   $("#avvisoFermi").innerHTML = vecchi.length ? `<button class="warn fermi" id="vediFermi" style="width:100%;text-align:left;border-left:4px solid var(--o)">⏰
     <span><b>${vecchi.length === 1 ? "1 articolo fermo" : vecchi.length + " articoli fermi"} da più di ${GIORNI_FERMO} giorni</b><br><small>Prova ad abbassare il prezzo del 10%</small></span><span style="color:var(--b);font-weight:700;margin-left:auto">Vedi ›</span></button>` : "";
@@ -179,6 +185,36 @@ function disegnaStat() {
       <div class="box"><small>Prezzo medio</small><b>${eur(vend.length ? vend.reduce((s, a) => s + a.prezzo, 0) / vend.length : 0)}</b></div></div>
     <div class="lab">Guadagno per sito</div>
     <div class="box">${Object.keys(perSito).length ? Object.keys(perSito).sort().map(s => `<div class="kv"><span>${esc(s)}</span><b>${eur(perSito[s])}</b></div>`).join("") : `<div class="kv"><span style="color:var(--sub)">Nessuna vendita</span></div>`}</div>`;
+}
+
+function apriSoldi() {
+  apriFoglio(() => {
+    const da = daTrasferire(), gia = trasferiti();
+    const somma = l => eur(l.reduce((s, a) => s + incasso(a), 0));
+    const riga = (a, fatto) => `<button class="item" style="width:100%" data-tr="${a.id}">${miniFoto(a, 40)}<span class="t"><b>${esc(a.nome)}</b>
+      <small>${fatto ? "trasferito " + dataBreve(a.dataTrasferimento) : "pagato " + dataBreve(a.dataPagamento)}</small></span>
+      <b style="color:${fatto ? "var(--g)" : "var(--ink)"}">${eur(incasso(a))}</b>
+      ${fatto ? `<span style="color:var(--g)">✓</span>` : `<span class="dot" style="background:var(--g)">→</span>`}</button>`;
+    return `<div class="nav"><button data-a="chiudi">‹ Ordini</button><span class="tt">Soldi</span><span style="width:60px"></span></div>
+      <div class="sum" style="grid-template-columns:1fr 1fr"><div><small>Da trasferire</small><b style="color:var(--o)">${somma(da)}</b></div>
+        <div><small>Già sul conto</small><b style="color:var(--g)">${somma(gia)}</b></div></div>
+      <div class="lab">Da trasferire · tocca quando arriva sul conto</div>
+      ${da.length ? `<div class="box">${da.map(a => riga(a, false)).join("")}</div>` : `<div class="empty">Niente da trasferire 👍</div>`}
+      <div class="lab">Già trasferiti sul conto</div>
+      ${gia.length ? `<div class="box">${gia.map(a => riga(a, true)).join("")}</div>` : `<div class="empty">Ancora nessuno</div>`}
+      <div class="note" style="margin-top:8px">Tocca un importo trasferito per riportarlo indietro. L'importo è il prezzo meno le commissioni.</div>`;
+  }, s => s.onclick = e => {
+    const r = e.target.closest("[data-tr]");
+    if (r) {
+      const a = articoli.find(x => x.id === r.dataset.tr);
+      a.trasferito = !a.trasferito;
+      a.dataTrasferimento = a.trasferito ? new Date().toISOString() : null;
+      salva([a]); mostraFoglio();
+      toast(a.trasferito ? "Spostato in “Già sul conto”" : "Riportato in “Da trasferire”");
+      return;
+    }
+    if (e.target.closest("[data-a]")) chiudiFoglio();
+  });
 }
 
 function apriFermi() {
